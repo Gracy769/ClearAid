@@ -249,6 +249,12 @@ input, select { caret-color: var(--blue); }
   .line-items-head, .line-item { grid-template-columns: minmax(130px, 1fr) 68px minmax(112px, 145px) 32px; gap: 8px; }
 }
 
+@media (max-width: 1280px) {
+  .workspace { grid-template-columns: minmax(0, 1fr); gap: 24px; }
+  .side-column { grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: start; }
+  .evidence-panel { grid-row: span 2; }
+}
+
 @media (max-width: 840px) {
   .workspace { grid-template-columns: minmax(0, 1fr); gap: 24px; padding-top: 36px; }
   .side-column { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); align-items: start; }

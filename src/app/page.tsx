@@ -109,7 +109,9 @@ export default function Home() {
       setReviewId(body.reviewId);
       setApprovalToken(body.approvalToken);
       setAiUsed(Boolean(body.aiUsed));
-      setNotice({ kind: "success", text: body.aiUsed ? "Suggestions are ready. Check each value against the source before approval." : "Preflight is complete. Review the findings and invoice details below." });
+      setNotice(body.aiError
+        ? { kind: "info", text: "PDF values were read from the text layer, but AI suggestions did not load. Check or complete the fields before approval." }
+        : { kind: "success", text: body.aiUsed ? "Suggestions are ready. Check each value against the source before approval." : body.pdfParsed ? "Fields were read from the PDF text. Check every value against the source before approval." : "Preflight is complete. Review the findings and invoice details below." });
     } catch (error) {
       setNotice({ kind: "error", text: error instanceof Error ? error.message : "The review could not be completed." });
     } finally {
@@ -219,7 +221,7 @@ export default function Home() {
                 <span className="upload-icon"><Icon name={file ? "file" : "upload"} size={21} /></span>
                 <span className="upload-copy">
                   <strong>{file ? file.name : "Add a purchase order or statement of work"}</strong>
-                  <span>{file ? `${(file.size / 1024 / 1024).toFixed(2)} MB · Searchable PDF` : "Drop a searchable PDF here, or browse · up to 8 MB"}</span>
+                  <span>{file ? `${file.size < 1024 * 1024 ? `${(file.size / 1024).toFixed(1)} KB` : `${(file.size / 1024 / 1024).toFixed(2)} MB`} · Searchable PDF` : "Drop a searchable PDF here, or browse · up to 8 MB"}</span>
                 </span>
                 <input id="po-file" className="visually-hidden" type="file" accept="application/pdf,.pdf" onChange={(event) => { invalidateReview(); setFile(event.target.files?.[0] || null); }} />
               </label>

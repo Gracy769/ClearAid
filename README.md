@@ -38,7 +38,7 @@ Set the server-side values in `.env.local`:
 | `APP_SECRET` | Random secret used to bind approvals to a reviewed invoice |
 | `DATABASE_URL` | Neon Postgres connection string |
 | `GEMINI_API_KEY` | Optional Gemini API key |
-| `GEMINI_MODEL` | Optional model name; defaults to `gemini-2.5-flash` |
+| `GEMINI_MODEL` | Optional model name; defaults to `gemini-3.8-flash` |
 
 Generate `APP_SECRET` with `node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"`. Keep all credentials on the server and never commit `.env.local`.
 
