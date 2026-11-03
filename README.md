@@ -1,36 +1,66 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Invoice Ready
 
-## Getting Started
+Invoice Ready helps service vendors review an invoice against a purchase order or statement of work before creating and sending it through PayPal. It runs in PayPal sandbox mode and requires separate approval for draft creation and sending.
 
-First, run the development server:
+## Features
+
+- Manual invoice entry or searchable PDF intake (8 MB maximum).
+- Optional Gemini field extraction. Extracted values remain editable; deterministic checks decide whether an invoice is ready.
+- Exact minor-unit arithmetic, required-field checks, currency and email validation, and optional PO-cap enforcement.
+- Source snippets and page numbers where extracted values match searchable PDF text. Original PDFs are processed in memory and are not stored.
+- PayPal sandbox draft and send actions through the PayPal TypeScript Agent Toolkit.
+- Signature-verified, deduplicated PayPal invoicing webhooks.
+- Neon persistence for reviews, invoice status, and webhook event IDs.
+
+## Requirements
+
+- Node.js 20 or newer
+- A PayPal sandbox REST app with Invoicing enabled
+- A Neon Postgres database
+- Gemini API key for assisted extraction (manual entry works without it)
+
+## Run locally
 
 ```bash
+npm install
+Copy-Item .env.example .env.local
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Set the server-side values in `.env.local`:
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+| Variable | Purpose |
+| --- | --- |
+| `PAYPAL_CLIENT_ID` | PayPal sandbox app client ID |
+| `PAYPAL_CLIENT_SECRET` | PayPal sandbox app secret |
+| `PAYPAL_WEBHOOK_ID` | Webhook ID registered for the sandbox app |
+| `APP_SECRET` | Random secret used to bind approvals to a reviewed invoice |
+| `DATABASE_URL` | Neon Postgres connection string |
+| `GEMINI_API_KEY` | Optional Gemini API key |
+| `GEMINI_MODEL` | Optional model name; defaults to `gemini-2.5-flash` |
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+Generate `APP_SECRET` with `node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"`. Keep all credentials on the server and never commit `.env.local`.
 
-## Learn More
+The database tables are created on first use. Configure the PayPal webhook URL as `https://YOUR_HOST/api/paypal/webhooks/invoicing` and subscribe to invoice paid, cancelled, refunded, and partially paid events.
 
-To learn more about Next.js, take a look at the following resources:
+## Checks
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+```bash
+npm run lint
+npm test
+npm run build
+```
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+## Sandbox flow
 
-## Deploy on Vercel
+1. Upload a searchable PO/SOW PDF or enter invoice details manually.
+2. Review and correct extracted values and inspect preflight findings.
+3. Approve creation of a PayPal sandbox draft.
+4. Inspect the hosted PayPal invoice page, then separately approve sending.
+5. PayPal webhooks update the stored invoice state; duplicate event IDs are ignored.
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+The application is sandbox-only. Configure Neon to save reviews; configure PayPal credentials as well to enable draft and send actions. It does not process live payments.
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+## License
+
+MIT. See [LICENSE](LICENSE).

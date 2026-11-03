@@ -9,11 +9,11 @@ export function paypalTools(){
 }
 export async function paypalCreateDraft(input:Record<string,unknown>){
   const tools=paypalTools(); const tool=tools.create_invoice;
-  if(!tool)throw new Error("PayPal invoice creation tool is unavailable.");
+  if(!tool?.execute)throw new Error("PayPal invoice creation tool is unavailable.");
   return tool.execute(input, { toolCallId: crypto.randomUUID(), messages: [] } as never);
 }
 export async function paypalSendInvoice(input:Record<string,unknown>){
   const tools=paypalTools(); const tool=tools.send_invoice;
-  if(!tool)throw new Error("PayPal invoice sending tool is unavailable.");
+  if(!tool?.execute)throw new Error("PayPal invoice sending tool is unavailable.");
   return tool.execute(input, { toolCallId: crypto.randomUUID(), messages: [] } as never);
 }

@@ -16,6 +16,14 @@ export function runPreflight(input: ReviewInput): ReviewResult {
   for (const [key, label] of required) {
     if (!String(input[key] ?? "").trim()) findings.push({ code: `missing_${key}`, severity: "block", message: `${label} is required.` });
   }
+  for (const key of ["vendorName", "buyerName", "buyerEmail", "poNumber", "currency"] as const) {
+    const expected = input.sourceTerms?.[key]?.trim();
+    const actual = input[key]?.trim();
+    if (expected && actual && expected.toLowerCase() !== actual.toLowerCase()) {
+      findings.push({ code: `source_mismatch_${key}`, severity: "block", message: `${key === "poNumber" ? "PO reference" : key === "currency" ? "Currency" : key === "buyerEmail" ? "Buyer email" : key === "vendorName" ? "Vendor identity" : "Buyer identity"} differs from the uploaded PO/SOW.` });
+    }
+  }
+  if (input.items.length > 50) findings.push({ code: "too_many_items", severity: "block", message: "An invoice can contain at most 50 line items." });
   if (input.buyerEmail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(input.buyerEmail)) {
     findings.push({ code: "invalid_buyer_email", severity: "block", message: "Enter a valid buyer email." });
   }
@@ -38,6 +46,6 @@ export function runPreflight(input: ReviewInput): ReviewResult {
     if (cap === null) findings.push({ code: "invalid_po_cap", severity: "block", message: "PO cap must be a positive amount." });
     else if (totalMinor > cap) findings.push({ code: "po_cap_exceeded", severity: "block", message: "Invoice total exceeds the stated PO cap." });
   }
-  if (!input.sourceText?.trim()) findings.push({ code: "no_source_evidence", severity: "warning", message: "No PO/SOW text was attached. Confirm the invoice terms manually." });
+  if (!input.evidence?.length) findings.push({ code: "no_source_evidence", severity: "warning", message: "No searchable PO/SOW evidence was found. Confirm the invoice terms manually." });
   return { status: findings.some(f => f.severity === "block") ? "HOLD" : "READY", input, findings, totalMinor };
 }
