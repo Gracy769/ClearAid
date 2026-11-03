@@ -14,7 +14,8 @@ Invoice Ready helps service vendors review an invoice against a purchase order o
 
 ## Requirements
 
-- Node.js 20 or newer
+- Node.js 22.23+ or 24.22+
+- Wrangler authenticated to the target Cloudflare account
 - A PayPal sandbox REST app with Invoicing enabled
 - A Neon Postgres database
 - Gemini API key for assisted extraction (manual entry works without it)
@@ -43,12 +44,22 @@ Generate `APP_SECRET` with `node -e "console.log(require('crypto').randomBytes(3
 
 The database tables are created on first use. Configure the PayPal webhook URL as `https://YOUR_HOST/api/paypal/webhooks/invoicing` and subscribe to invoice paid, cancelled, refunded, and partially paid events.
 
+## Deploy to Cloudflare Workers
+
+The deployment configuration is in `wrangler.jsonc`. Add `DATABASE_URL` and `APP_SECRET` with `wrangler secret put` before the first deployment. Add the PayPal sandbox credentials and webhook ID to enable invoice actions and event processing. Then run:
+
+```bash
+npm run deploy:cloudflare
+```
+
+This builds the app, stages the Worker and static assets, and deploys them with Wrangler. The deployment uses the Cloudflare Workers dev subdomain configured for the account.
+
 ## Checks
 
 ```bash
 npm run lint
 npm test
-npm run build
+npm run build:vinext
 ```
 
 ## Sandbox flow

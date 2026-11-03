@@ -1,5 +1,4 @@
 import { NextRequest, NextResponse } from "next/server";
-import { PDFParse } from "pdf-parse";
 import { extractInvoiceTerms } from "@/lib/ai";
 import { runPreflight } from "@/lib/preflight";
 import { newId, sign } from "@/lib/security";
@@ -13,7 +12,7 @@ export async function POST(req:NextRequest){
   const schema=z.object({vendorName:z.string().max(200).default(""),buyerName:z.string().max(200).default(""),buyerEmail:z.string().max(320).default(""),poNumber:z.string().max(120).default(""),currency:z.string().max(3).default("USD"),poCap:z.string().max(30).optional(),items:z.array(z.object({description:z.string().max(500),quantity:z.string().max(20),unitAmount:z.string().max(30)})).max(50).default([])});
   const input=schema.parse(JSON.parse(raw)) as ReviewInput;
   const file=form.get("file"); let text=""; let pages:{num:number;text:string}[]=[];
-  if(file instanceof File){if(file.type!=="application/pdf"||file.size>8*1024*1024)return NextResponse.json({error:"Upload a PDF no larger than 8 MB."},{status:400});const bytes=Buffer.from(await file.arrayBuffer());const parser=new PDFParse({data:bytes});try{const parsed=await parser.getText();text=parsed.text.slice(0,24000);pages=parsed.pages;input.documentHash=createHash("sha256").update(bytes).digest("hex")}finally{await parser.destroy()}}
+  if(file instanceof File){if(file.type!=="application/pdf"||file.size>8*1024*1024)return NextResponse.json({error:"Upload a PDF no larger than 8 MB."},{status:400});const bytes=Buffer.from(await file.arrayBuffer());try{const {extractText,getDocumentProxy}=await import("unpdf");const document=await getDocumentProxy(new Uint8Array(bytes),{maxImageSize:16_777_216});if(document.numPages>100)return NextResponse.json({error:"PDFs are limited to 100 pages."},{status:413});const parsed=await extractText(document,{mergePages:false});const pageTexts=Array.isArray(parsed.text)?parsed.text:[parsed.text];pages=pageTexts.map((pageText,index)=>({num:index+1,text:pageText}));text=pageTexts.join("\n").slice(0,24000);input.documentHash=createHash("sha256").update(bytes).digest("hex")}catch(error){console.error("PDF extraction failed",error instanceof Error?error.message:"unknown");return NextResponse.json({error:"Could not read this PDF. Use a text-based PDF or enter the invoice details manually."},{status:422})}}
   let aiUsed=false;
   if(text){const extracted=await extractInvoiceTerms(text);if(extracted){aiUsed=true;input.sourceTerms={vendorName:extracted.vendorName,buyerName:extracted.buyerName,buyerEmail:extracted.buyerEmail,poNumber:extracted.poNumber,currency:extracted.currency};for(const key of ["vendorName","buyerName","buyerEmail","poNumber","currency","poCap"] as const){if(!input[key]&&extracted[key])input[key]=extracted[key] as never}}}
   if(text){

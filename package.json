@@ -6,28 +6,44 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint",
-    "test": "tsx --test tests/preflight.test.ts"
+    "lint": "eslint src tests",
+    "test": "tsx --test tests/preflight.test.ts",
+    "dev:vinext": "vite dev --port 3001",
+    "build:vinext": "vite build",
+    "start:vinext": "vite preview",
+    "deploy:vinext": "vinext-cloudflare deploy",
+    "deploy:cloudflare": "npm run build:vinext && node scripts/stage-wrangler-output.mjs && wrangler deploy --config wrangler.jsonc"
   },
   "dependencies": {
     "@google/generative-ai": "^0.24.1",
     "@neondatabase/serverless": "^1.2.0",
     "@paypal/agent-toolkit": "^1.11.0",
+    "@vinext/cloudflare": "^1.3.2",
     "next": "16.4.4",
-    "pdf-parse": "^2.4.5",
-    "react": "19.3.0",
-    "react-dom": "19.3.0",
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1",
+    "react-server-dom-webpack": "^19.3.1",
+    "unpdf": "^2.1.0",
+    "vinext": "^1.4.2",
     "zod": "^3.25.76"
   },
   "devDependencies": {
+    "@cloudflare/vite-plugin": "^2.0.0-beta.v.10",
+    "@tailwindcss/postcss": "^4.3.4",
     "@tailwindcss/turbopack": "^4",
     "@types/node": "^20",
     "@types/react": "^19",
     "@types/react-dom": "^19",
+    "@vitejs/plugin-react": "^6.2.1",
+    "@vitejs/plugin-rsc": "^0.5.38",
+    "cf": "^1.0.0-beta.27",
     "eslint": "^9",
     "eslint-config-next": "16.4.4",
     "tailwindcss": "^4",
     "tsx": "^4.23.15",
-    "typescript": "^5"
-  }
+    "typescript": "^5",
+    "vite": "^8.3.0",
+    "wrangler": "^4.156.2"
+  },
+  "type": "module"
 }
