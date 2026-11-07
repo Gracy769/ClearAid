@@ -15,3 +15,10 @@ export type ReviewInput = {
 };
 export type Finding = { code: string; severity: "block" | "warning"; message: string; refs?: SourceRef[] };
 export type ReviewResult = { status: "READY" | "HOLD"; input: ReviewInput; findings: Finding[]; totalMinor: number };
+
+export type BatchReportReview = {
+  id: string;
+  sectionTitle: string;
+  approvalToken: string;
+  review: ReviewResult;
+};

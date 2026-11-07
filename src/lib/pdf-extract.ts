@@ -9,7 +9,7 @@ export function extractTermsFromPdfText(text: string): Partial<ReviewInput> {
 
   // 1. PO Number
   const poMatch =
-    text.match(/(?:Purchase\s+Order\s*(?:Number|No|#)?|PO\s*(?:Number|No|#)?)\s*[:#\-]?\s*([A-Z0-9][A-Z0-9\-_/]+)/i) ||
+    text.match(/(?:\bPurchase\s+Order\s*(?:Number|No|#)?|\bPO\b\s*(?:Number|No|#)?)\s*[:#\-]?\s*([A-Z0-9][A-Z0-9\-_/]+)/i) ||
     text.match(/\b(PO[-\s][A-Z0-9][A-Z0-9-]*)\b/i);
   if (poMatch) result.poNumber = poMatch[1].replace(/\s+/g, "-");
 
@@ -102,4 +102,61 @@ export function extractTermsFromPdfText(text: string): Partial<ReviewInput> {
   }
 
   return result;
+}
+
+export interface ExtractedReportSegment {
+  title: string;
+  terms: Partial<ReviewInput>;
+}
+
+export interface MultiReportExtraction {
+  isMulti: boolean;
+  reports: ExtractedReportSegment[];
+}
+
+export function extractMultiReportsFromPdfText(text: string): MultiReportExtraction {
+  const globalTerms = extractTermsFromPdfText(text);
+
+  // Match report, schedule, tranche, or work order boundaries
+  const segmentHeaderRegex = /(?:^|\r?\n)(?:(?:REPORT|SCHEDULE|WORK ORDER|TRANCHE|MILESTONE)\s+(?:[0-9]+|[A-Z])\b[^\r\n]*)/gi;
+  const matches = [...text.matchAll(segmentHeaderRegex)];
+
+  if (matches.length < 2) {
+    return {
+      isMulti: false,
+      reports: [{ title: "Primary Statement of Work", terms: globalTerms }],
+    };
+  }
+
+  const reports: ExtractedReportSegment[] = [];
+  for (let i = 0; i < matches.length; i++) {
+    const startIdx = matches[i].index ?? 0;
+    const endIdx = i + 1 < matches.length ? (matches[i + 1].index ?? text.length) : text.length;
+    const segmentText = text.slice(startIdx, endIdx);
+    const headerTitle = matches[i][0].replace(/^\r?\n/, "").trim();
+
+    // Extract terms specific to this segment
+    const localTerms = extractTermsFromPdfText(segmentText);
+
+    // Merge: prioritize local, fallback to global document terms
+    const mergedTerms: Partial<ReviewInput> = {
+      vendorName: localTerms.vendorName || globalTerms.vendorName || "",
+      buyerName: localTerms.buyerName || globalTerms.buyerName || "",
+      buyerEmail: localTerms.buyerEmail || globalTerms.buyerEmail || "",
+      poNumber: localTerms.poNumber || (globalTerms.poNumber ? `${globalTerms.poNumber}-${i + 1}` : `PO-REPORT-${i + 1}`),
+      currency: localTerms.currency || globalTerms.currency || "USD",
+      poCap: localTerms.poCap || "",
+      items: localTerms.items && localTerms.items.length > 0 ? localTerms.items : [],
+    };
+
+    reports.push({
+      title: headerTitle,
+      terms: mergedTerms,
+    });
+  }
+
+  return {
+    isMulti: true,
+    reports,
+  };
 }
