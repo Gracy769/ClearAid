@@ -13,6 +13,7 @@ export default defineConfig({
     },
     env: {
       ASSETS: bindings.assets(),
+      AI: bindings.ai(),
     },
   }),
 });

@@ -1,16 +1,168 @@
-import { NextRequest,NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { recordWebhook } from "@/lib/db";
-export async function POST(req:NextRequest){
- try{const event=await req.json();const webhookId=process.env.PAYPAL_WEBHOOK_ID;const clientId=process.env.PAYPAL_CLIENT_ID;const secret=process.env.PAYPAL_CLIENT_SECRET;
- if(!webhookId||!clientId||!secret)return NextResponse.json({error:"Webhook verification is not configured."},{status:503});
- const base="https://api-m.sandbox.paypal.com";const auth=Buffer.from(`${clientId}:${secret}`).toString("base64");const tokenRes=await fetch(`${base}/v1/oauth2/token`,{method:"POST",headers:{Authorization:`Basic ${auth}`,"Content-Type":"application/x-www-form-urlencoded"},body:"grant_type=client_credentials"});
- if(!tokenRes.ok)throw Error("PayPal token request failed");const {access_token}=await tokenRes.json();
- const verification=await fetch(`${base}/v1/notifications/verify-webhook-signature`,{method:"POST",headers:{Authorization:`Bearer ${access_token}`,"Content-Type":"application/json"},body:JSON.stringify({auth_algo:req.headers.get("paypal-auth-algo"),cert_url:req.headers.get("paypal-cert-url"), transmission_id:req.headers.get("paypal-transmission-id"),transmission_sig:req.headers.get("paypal-transmission-sig"),transmission_time:req.headers.get("paypal-transmission-time"),webhook_id:webhookId,webhook_event:event})});
- const result=await verification.json();if(!verification.ok||result.verification_status!=="SUCCESS")return NextResponse.json({error:"Invalid webhook signature."},{status:401});
- if(!event.id||!event.event_type)return NextResponse.json({error:"Webhook event is missing its ID or type."},{status:400});
- const resource=event.resource||{};const invoiceId=resource.id||resource.invoice_id||null;
- const statusByType:Record<string,string>={"INVOICING.INVOICE.PAID":"PAID","INVOICING.INVOICE.CANCELLED":"CANCELLED","INVOICING.INVOICE.REFUNDED":"REFUNDED","INVOICING.INVOICE.PARTIALLY_PAID":"PARTIALLY_PAID"};
- const processed=await recordWebhook(event.id,event.event_type,invoiceId,statusByType[event.event_type]||null);
- return NextResponse.json({received:true,duplicate:!processed,eventId:event.id,eventType:event.event_type});
- }catch(e){console.error("webhook handling failed",e instanceof Error?e.message:"unknown");return NextResponse.json({error:"Webhook verification failed."},{status:500})}
+import { getPayPalAccessToken } from "@/lib/paypal";
+import { assembleDisputeEvidencePackage, type PayPalDisputeEvent } from "@/lib/dispute";
+
+export async function POST(req: NextRequest) {
+  try {
+    let rawBody: string;
+    try {
+      rawBody = await req.text();
+    } catch {
+      return NextResponse.json({ error: "Failed to read request body." }, { status: 400 });
+    }
+
+    let event: Record<string, unknown>;
+    try {
+      event = JSON.parse(rawBody);
+    } catch {
+      return NextResponse.json({ error: "Invalid JSON payload." }, { status: 400 });
+    }
+
+    const webhookId = process.env.PAYPAL_WEBHOOK_ID;
+    const clientId = process.env.PAYPAL_CLIENT_ID;
+    const secret = process.env.PAYPAL_CLIENT_SECRET;
+
+    if (!webhookId || !clientId || !secret) {
+      return NextResponse.json(
+        { error: "Webhook verification is not configured." },
+        { status: 503 }
+      );
+    }
+
+    // Fast-fail if required PayPal transmission headers are missing
+    const authAlgo = req.headers.get("paypal-auth-algo");
+    const certUrl = req.headers.get("paypal-cert-url");
+    const transmissionId = req.headers.get("paypal-transmission-id");
+    const transmissionSig = req.headers.get("paypal-transmission-sig");
+    const transmissionTime = req.headers.get("paypal-transmission-time");
+
+    if (!authAlgo || !certUrl || !transmissionId || !transmissionSig || !transmissionTime) {
+      return NextResponse.json(
+        { error: "Missing required PayPal signature headers." },
+        { status: 400 }
+      );
+    }
+
+    // Retrieve cached OAuth token without redundant HTTP round-trips
+    let accessToken: string;
+    try {
+      accessToken = await getPayPalAccessToken();
+    } catch (tokenErr) {
+      console.error("Failed to acquire PayPal OAuth token for webhook verification", tokenErr);
+      return NextResponse.json({ error: "PayPal authentication failed." }, { status: 502 });
+    }
+
+    const baseUrl =
+      process.env.PAYPAL_API_BASE_URL ||
+      (process.env.PAYPAL_SANDBOX === "false"
+        ? "https://api-m.paypal.com"
+        : "https://api-m.sandbox.paypal.com");
+
+    const verificationRes = await fetch(`${baseUrl}/v1/notifications/verify-webhook-signature`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        auth_algo: authAlgo,
+        cert_url: certUrl,
+        transmission_id: transmissionId,
+        transmission_sig: transmissionSig,
+        transmission_time: transmissionTime,
+        webhook_id: webhookId,
+        webhook_event: event,
+      }),
+    });
+
+    const verificationData = await verificationRes.json().catch(() => ({}));
+    if (!verificationRes.ok || verificationData.verification_status !== "SUCCESS") {
+      return NextResponse.json({ error: "Invalid webhook signature." }, { status: 401 });
+    }
+
+    const eventId = typeof event.id === "string" ? event.id : null;
+    const eventType = typeof event.event_type === "string" ? event.event_type : null;
+    if (!eventId || !eventType) {
+      return NextResponse.json(
+        { error: "Webhook event is missing its ID or type." },
+        { status: 400 }
+      );
+    }
+
+    // 1. Process Customer Dispute Events (CUSTOMER.DISPUTE.*)
+    if (eventType.startsWith("CUSTOMER.DISPUTE.")) {
+      const disputeEvent = event as unknown as PayPalDisputeEvent;
+      const resource = disputeEvent.resource || {};
+      const disputeId = resource.dispute_id || eventId;
+
+      let evidencePackage = null;
+      if (eventType === "CUSTOMER.DISPUTE.CREATED") {
+        evidencePackage = await assembleDisputeEvidencePackage(disputeEvent);
+      }
+
+      const processed = await recordWebhook(
+        eventId,
+        eventType,
+        disputeId,
+        resource.status || null
+      );
+
+      return NextResponse.json(
+        {
+          received: true,
+          duplicate: !processed,
+          eventId,
+          eventType,
+          disputeId,
+          status: resource.status || "OPEN",
+          evidencePackage,
+        },
+        { status: 200 }
+      );
+    }
+
+    // 2. Process Standard Invoicing Events (INVOICING.INVOICE.*)
+    if (eventType.startsWith("INVOICING.INVOICE.")) {
+      const resource = (typeof event.resource === "object" && event.resource !== null ? event.resource : {}) as Record<string, unknown>;
+      const invoiceId = typeof resource.id === "string" ? resource.id : typeof resource.invoice_id === "string" ? resource.invoice_id : null;
+      const statusByType: Record<string, string> = {
+        "INVOICING.INVOICE.PAID": "PAID",
+        "INVOICING.INVOICE.CANCELLED": "CANCELLED",
+        "INVOICING.INVOICE.REFUNDED": "REFUNDED",
+        "INVOICING.INVOICE.PARTIALLY_PAID": "PARTIALLY_PAID",
+      };
+
+      const targetStatus = statusByType[eventType] || null;
+      const processed = await recordWebhook(eventId, eventType, invoiceId, targetStatus);
+
+      return NextResponse.json(
+        {
+          received: true,
+          duplicate: !processed,
+          eventId,
+          eventType,
+          invoiceId,
+          status: targetStatus,
+        },
+        { status: 200 }
+      );
+    }
+
+    // 3. Acknowledge Any Other Valid Signed PayPal Event
+    const processed = await recordWebhook(eventId, eventType, null, null);
+    return NextResponse.json(
+      {
+        received: true,
+        duplicate: !processed,
+        eventId,
+        eventType,
+        handled: false,
+      },
+      { status: 200 }
+    );
+  } catch (e) {
+    console.error("Webhook processing error", e instanceof Error ? e.message : "unknown");
+    return NextResponse.json({ error: "Webhook verification failed." }, { status: 500 });
+  }
 }

@@ -43,3 +43,8 @@ next-env.d.ts
 /dist/
 .vinext/
 .cloudflare/
+
+# Agent workspace and IDE metadata
+.agents
+.vscode/
+/output/

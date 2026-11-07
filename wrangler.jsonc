@@ -14,5 +14,27 @@
   },
   "observability": {
     "enabled": true
+  },
+  // Workers AI binding for edge LLM inference
+  "ai": {
+    "binding": "AI"
+  },
+  // Non-sensitive runtime environment variables
+  "vars": {
+    "PAYPAL_SANDBOX": "true",
+    "PAYPAL_API_BASE_URL": "https://api-m.sandbox.paypal.com",
+    "GEMINI_MODEL": "gemini-2.5-flash",
+    "APP_URL": "https://invoice-ready.workers.dev"
+  },
+  // Required secrets validated by Wrangler during deployment and local dev
+  "secrets": {
+    "required": [
+      "DATABASE_URL",
+      "APP_SECRET",
+      "PAYPAL_CLIENT_ID",
+      "PAYPAL_CLIENT_SECRET",
+      "PAYPAL_WEBHOOK_ID",
+      "GEMINI_API_KEY"
+    ]
   }
 }
