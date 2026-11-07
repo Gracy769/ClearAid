@@ -67,22 +67,44 @@ export async function POST(req: NextRequest) {
     }
 
     let id = "";
-    let result: Record<string, unknown>;
+    let rawResult: unknown;
+    let parsedObj: Record<string, unknown> = {};
     try {
-      result = (await paypalCreateDraft(payload as unknown as Record<string, unknown>)) as Record<string, unknown>;
-      id = String(result.id || result.invoice_id || "");
+      rawResult = await paypalCreateDraft(payload as unknown as Record<string, unknown>);
+      if (typeof rawResult === "string") {
+        try {
+          parsedObj = JSON.parse(rawResult);
+        } catch {
+          parsedObj = {};
+        }
+      } else if (rawResult && typeof rawResult === "object") {
+        parsedObj = rawResult as Record<string, unknown>;
+      }
+
+      id = String(parsedObj.id || parsedObj.invoice_id || "");
+      if (!id && typeof parsedObj.href === "string") {
+        const match = parsedObj.href.match(/\/invoices\/([A-Za-z0-9_-]+)/);
+        if (match) id = match[1];
+      }
+      if (!id && typeof rawResult === "string") {
+        const match = rawResult.match(/\/invoices\/([A-Za-z0-9_-]+)/);
+        if (match) id = match[1];
+      }
+
       if (!id) throw new Error("PayPal did not return an invoice ID.");
-      await commitInvoiceDraft(pendingId, id, String(result.status || "DRAFT"));
+      await commitInvoiceDraft(pendingId, id, String(parsedObj.status || "DRAFT"));
     } catch (error) {
       await releaseInvoiceDraft(pendingId);
       throw error;
     }
 
-    const links = Array.isArray(result.links) ? (result.links as { rel: string; href: string }[]) : [];
-    const url = links.find((x) => x.rel === "payer-view")?.href || "";
+    const links = Array.isArray(parsedObj.links) ? (parsedObj.links as { rel: string; href: string }[]) : [];
+    const url =
+      links.find((x) => x.rel === "payer-view")?.href ||
+      `https://www.sandbox.paypal.com/invoice/payerView/details/${id}`;
     const sendToken = sign(JSON.stringify({ reviewId, invoiceId: id, action: "send" }));
 
-    return NextResponse.json({ id, url, status: result.status || "DRAFT", sendToken });
+    return NextResponse.json({ id, url, status: parsedObj.status || "DRAFT", sendToken });
   } catch (e) {
     console.error("PayPal draft failed", e instanceof Error ? e.message : "unknown");
     return NextResponse.json(
