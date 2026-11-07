@@ -296,9 +296,9 @@ export default function Home() {
           </section>}
 
           {invoiceId && <section className={`surface draft-surface${sent ? " is-sent" : ""}`} aria-labelledby="draft-title">
-            <div className="draft-heading"><span className="draft-icon"><Icon name={sent ? "check" : "file"} size={20} /></span><div><h2 id="draft-title">{sent ? "Invoice sent" : "Sandbox draft created"}</h2><p>{sent ? "PayPal accepted the send request." : "Review the hosted invoice, then approve sending as a separate step."}</p></div></div>
+            <div className="draft-heading"><span className="draft-icon"><Icon name={sent ? "check" : "file"} size={20} /></span><div><h2 id="draft-title">{sent ? "Invoice sent" : "Sandbox draft created"}</h2><p>{sent ? "PayPal accepted the send request." : "Approve sending to issue the invoice to the buyer."}</p></div></div>
             <div className="draft-reference"><span>PayPal invoice ID</span><code>{invoiceId}</code></div>
-            <div className="draft-actions">{invoiceUrl && <a className="button-secondary" href={invoiceUrl} target="_blank" rel="noreferrer">Open hosted invoice <Icon name="arrow" size={16} /></a>}{!sent && <button type="button" className="button-primary" onClick={sendInvoice} disabled={busy || !sendToken}>{busy ? <><span className="spinner" />Sending</> : <>Approve &amp; send invoice <Icon name="arrow" size={17} /></>}</button>}</div>
+            <div className="draft-actions">{sent && invoiceUrl && <a className="button-secondary" href={invoiceUrl} target="_blank" rel="noreferrer">Open hosted invoice <Icon name="arrow" size={16} /></a>}{!sent && <button type="button" className="button-primary" onClick={sendInvoice} disabled={busy || !sendToken}>{busy ? <><span className="spinner" />Sending</> : <>Approve &amp; send invoice <Icon name="arrow" size={17} /></>}</button>}</div>
           </section>}
         </section>
 
