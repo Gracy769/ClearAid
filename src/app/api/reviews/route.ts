@@ -15,8 +15,21 @@ export async function POST(req:NextRequest){
   const file=form.get("file"); let text=""; let pages:{num:number;text:string}[]=[];
   if(file instanceof File){if(file.type!=="application/pdf"||file.size>8*1024*1024)return NextResponse.json({error:"Upload a PDF no larger than 8 MB."},{status:400});const bytes=Buffer.from(await file.arrayBuffer());try{const {extractText,getDocumentProxy}=await import("unpdf");const document=await getDocumentProxy(new Uint8Array(bytes),{maxImageSize:16_777_216});if(document.numPages>100)return NextResponse.json({error:"PDFs are limited to 100 pages."},{status:413});const parsed=await extractText(document,{mergePages:false});const pageTexts=Array.isArray(parsed.text)?parsed.text:[parsed.text];pages=pageTexts.map((pageText,index)=>({num:index+1,text:pageText}));text=pageTexts.join("\n").slice(0,24000);input.documentHash=createHash("sha256").update(bytes).digest("hex")}catch(error){console.error("PDF extraction failed",error instanceof Error?error.message:"unknown");return NextResponse.json({error:"Could not read this PDF. Use a text-based PDF or enter the invoice details manually."},{status:422})}}
   let aiUsed=false;let aiError=false;let extracted=text?extractTermsFromPdfText(text):null;
-  if(text){try{const ai=await extractInvoiceTerms(text);if(ai){aiUsed=true;extracted={...extracted,...ai,items:ai.items?.length?ai.items:extracted?.items}}}catch(error){aiError=true;console.error("Gemini extraction failed",error instanceof Error?error.message:"unknown")}}
-  if(extracted){input.sourceTerms={vendorName:extracted.vendorName,buyerName:extracted.buyerName,buyerEmail:extracted.buyerEmail,poNumber:extracted.poNumber,currency:extracted.currency};for(const key of ["vendorName","buyerName","buyerEmail","poNumber","currency","poCap"] as const){if(!input[key]&&extracted[key])input[key]=extracted[key] as never}const hasManualItems=input.items.some(item=>item.description.trim()||item.unitAmount.trim());if(!hasManualItems&&extracted.items?.length){input.items=extracted.items.slice(0,50).map(item=>({description:String(item.description||"").slice(0,500),quantity:String(item.quantity||"1").slice(0,20),unitAmount:String(item.unitAmount||"").slice(0,30)}))}}
+  if(text){try{const ai=await extractInvoiceTerms(text);if(ai){aiUsed=true;extracted={...extracted,...ai,items:ai.items?.length?ai.items:extracted?.items}}}catch(error){if(!extracted)aiError=true;console.error("Gemini extraction failed",error instanceof Error?error.message:"unknown")}}
+  if(extracted){
+    input.sourceTerms={vendorName:extracted.vendorName,buyerName:extracted.buyerName,buyerEmail:extracted.buyerEmail,poNumber:extracted.poNumber,currency:extracted.currency};
+    for(const key of ["vendorName","buyerName","buyerEmail","poNumber","currency"] as const){
+      if(!input[key]&&extracted[key])input[key]=extracted[key] as never;
+    }
+    if((!input.poCap || input.poCap === "0" || input.poCap === "0.00") && extracted.poCap) {
+      input.poCap = extracted.poCap;
+    }
+    const hasManualItems=input.items.some(item=>item.description.trim()||item.unitAmount.trim());
+    const isStaleExtraction=input.items.some(item=>item.description==="Architect)"||item.description==="Spec)"||item.description==="Eng)");
+    if((!hasManualItems || isStaleExtraction) && extracted.items?.length){
+      input.items=extracted.items.slice(0,50).map(item=>({description:String(item.description||"").slice(0,500),quantity:String(item.quantity||"1").slice(0,20),unitAmount:String(item.unitAmount||"").slice(0,30)}));
+    }
+  }
   if(text){
     const values=[input.vendorName,input.buyerName,input.buyerEmail,input.poNumber,...input.items.map(item=>item.description)].filter(v=>v.trim().length>2);
     input.evidence=values.flatMap(value=>{const page=pages.find(p=>p.text.toLowerCase().includes(value.toLowerCase()));if(!page)return[];const at=page.text.toLowerCase().indexOf(value.toLowerCase());const start=Math.max(0,at-90);return[{document:file instanceof File?file.name:"Uploaded PO/SOW",page:page.num,quote:page.text.slice(start,Math.min(page.text.length,at+value.length+120)).replace(/\s+/g," ").trim()}]}).slice(0,20);

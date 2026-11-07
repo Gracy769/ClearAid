@@ -23,7 +23,7 @@
   "vars": {
     "PAYPAL_SANDBOX": "true",
     "PAYPAL_API_BASE_URL": "https://api-m.sandbox.paypal.com",
-    "GEMINI_MODEL": "gemini-2.5-flash",
+    "GEMINI_MODEL": "gemini-2.0-flash",
     "APP_URL": "https://invoice-ready.workers.dev"
   },
   // Required secrets validated by Wrangler during deployment and local dev

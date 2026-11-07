@@ -346,19 +346,25 @@ describe("Route-Level Adversarial Stress Suite: POST /api/paypal/invoices", () =
       await saveReview(reviewId, review, approvalHash);
       const approvalToken = sign(JSON.stringify({ reviewId, reviewHash: approvalHash }));
 
-      // Without live PayPal sandbox credentials, paypalCreateDraft will fail
-      const req = new NextRequest("http://localhost/api/paypal/invoices", {
-        method: "POST",
-        body: JSON.stringify({
-          reviewId,
-          approvalToken,
-          review,
-        }),
-        headers: { "content-type": "application/json" },
-      });
-      const res = await POST(req);
-      // Route catches PayPal failure and returns HTTP 502
-      assert.equal(res.status, 502);
+      // Force PayPal draft failure to verify rollback
+      const savedSecret = process.env.PAYPAL_CLIENT_SECRET;
+      process.env.PAYPAL_CLIENT_SECRET = "invalid_secret_for_test";
+      try {
+        const req = new NextRequest("http://localhost/api/paypal/invoices", {
+          method: "POST",
+          body: JSON.stringify({
+            reviewId,
+            approvalToken,
+            review,
+          }),
+          headers: { "content-type": "application/json" },
+        });
+        const res = await POST(req);
+        // Route catches PayPal failure and returns HTTP 502
+        assert.equal(res.status, 502);
+      } finally {
+        process.env.PAYPAL_CLIENT_SECRET = savedSecret;
+      }
 
       // Verify pending reservation was released (lock was NOT leaked)
       const newReservation = await reserveInvoiceDraft(reviewId);
