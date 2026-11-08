@@ -403,20 +403,15 @@ export default function Home() {
       <header className="topbar">
         <div className="topbar-inner">
           <a className="brand" href="#main" aria-label="Invoice Ready home">
-            <span className="brand-badge">IR</span>
+            <span className="brand-mark" aria-hidden="true">IR</span>
             <span className="brand-name">Invoice Ready</span>
           </a>
-          <span className="topbar-tag">Preflight verification for PayPal Invoicing</span>
-          <div className="topbar-status">
-            <span className={`status-pill${paypalConfigured === true ? " is-connected" : ""}`}>
-              <span className="status-dot" />
-              <span>{paypalConfigured === true ? "Sandbox connected" : paypalConfigured === false ? "Credentials missing" : "Checking sandbox…"}</span>
-            </span>
-          </div>
+          <div className="topbar-note"><Icon name="shield" size={16} /><span>Preflight verification for PayPal Invoicing</span></div>
+          <span className="sandbox-badge"><span className="sandbox-dot" />{paypalConfigured === true ? "SANDBOX CONNECTED" : "SANDBOX"}</span>
         </div>
       </header>
 
-      <nav className="workflow-nav" aria-label="Invoice preparation workflow">
+      <nav className="workflow-rail" aria-label="Invoice review progress">
         <ol className="workflow-inner">
           {["Invoice details", "Preflight", "PayPal approval"].map((label, index) => {
             const complete = index < step;
@@ -460,10 +455,10 @@ export default function Home() {
             <p className="privacy-note"><Icon name="shield" size={14} />The original PDF is processed for this review and is not retained.</p>
 
             {batchReviews.length > 1 && (
-              <div style={{ margin: "16px 0", padding: "12px", background: "#f8fafc", borderRadius: "8px", border: "1px solid #cbd5e1" }}>
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "8px" }}>
-                  <strong style={{ fontSize: "14px", color: "#0f172a" }}>Multi-Invoice Document: Found {batchReviews.length} Reports</strong>
-                  <span style={{ fontSize: "12px", color: "#64748b" }}>Click to view details in form</span>
+              <div style={{ margin: "16px 0", padding: "14px 16px", background: "var(--canvas)", borderRadius: "10px", border: "1px solid var(--border)" }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "10px" }}>
+                  <strong style={{ fontSize: "14px", color: "var(--ink)" }}>Multi-Invoice Document: Found {batchReviews.length} Reports</strong>
+                  <span style={{ fontSize: "12px", color: "var(--muted)" }}>Click a tab to view report in form</span>
                 </div>
                 <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
                   {batchReviews.map((rep, idx) => {
@@ -478,24 +473,46 @@ export default function Home() {
                         type="button"
                         onClick={() => selectReportTab(idx)}
                         style={{
-                          padding: "8px 12px",
-                          borderRadius: "6px",
-                          border: isSelected ? "2px solid #0284c7" : "1px solid #cbd5e1",
-                          background: isSelected ? "#0284c7" : "#ffffff",
-                          color: isSelected ? "#ffffff" : isDismissed ? "#94a3b8" : "#0f172a",
+                          padding: "8px 14px",
+                          borderRadius: "8px",
+                          border: isSelected ? "2px solid var(--blue)" : "1px solid var(--border)",
+                          background: isSelected ? "var(--blue)" : "#ffffff",
+                          color: isSelected ? "#ffffff" : isDismissed ? "#94a3b8" : "var(--ink)",
                           textDecoration: isDismissed ? "line-through" : "none",
                           cursor: "pointer",
-                          fontWeight: isSelected ? "600" : "400",
+                          fontWeight: isSelected ? "600" : "500",
                           fontSize: "13px",
                           display: "inline-flex",
                           alignItems: "center",
-                          gap: "6px",
+                          gap: "8px",
+                          transition: "all 140ms ease",
                         }}
                       >
                         <span>{rep.sectionTitle.length > 32 ? `${rep.sectionTitle.slice(0, 32)}…` : rep.sectionTitle}</span>
-                        <span style={{ fontSize: "11px", opacity: 0.85 }}>({formatMoney(rep.review.totalMinor, rep.review.input.currency)})</span>
-                        <span style={{ fontSize: "11px", padding: "1px 5px", borderRadius: "4px", background: isSelected ? "rgba(255,255,255,0.2)" : isSent ? "rgba(16, 185, 129, 0.15)" : isReady ? "rgba(2, 132, 199, 0.15)" : "rgba(239, 68, 68, 0.15)", color: isSelected ? "#ffffff" : isSent ? "#059669" : isReady ? "#0284c7" : "#dc2626" }}>
-                          {isDismissed ? "EXCLUDED" : isSent ? "SENT" : isReady ? "READY" : "HOLD"}
+                        <span style={{ fontSize: "12px", opacity: isSelected ? 0.9 : 0.7 }}>({formatMoney(rep.review.totalMinor, rep.review.input.currency)})</span>
+                        <span
+                          style={{
+                            fontSize: "10px",
+                            fontWeight: 700,
+                            padding: "2px 6px",
+                            borderRadius: "4px",
+                            background: isSelected
+                              ? "rgba(255,255,255,0.25)"
+                              : isSent
+                              ? "var(--success-bg)"
+                              : isReady
+                              ? "var(--canvas)"
+                              : "var(--danger-bg)",
+                            color: isSelected
+                              ? "#ffffff"
+                              : isSent
+                              ? "var(--success)"
+                              : isReady
+                              ? "var(--blue-deep)"
+                              : "var(--danger)",
+                          }}
+                        >
+                          {isDismissed ? "EXCLUDED" : isSent ? "SENT ✓" : isReady ? "READY" : "HOLD"}
                         </span>
                       </button>
                     );
@@ -524,24 +541,65 @@ export default function Home() {
               </div>
             </fieldset>
 
-            <fieldset className="field-group items-group">
+            <fieldset className="field-group line-items-group">
               <legend>What are you billing for?</legend>
-              <div className="items-table-header"><span>Service or deliverable</span><span>Qty</span><span>Unit rate</span><span /></div>
-              <div className="items-list">
-                {data.items.map((item, index) => <div className="item-row" key={index}>
-                  <div className="item-cell item-desc"><label className="visually-hidden" htmlFor={`desc-${index}`}>Service or deliverable, line {index + 1}</label><input id={`desc-${index}`} value={item.description} onChange={(event) => updateItem(index, "description", event.target.value)} placeholder="e.g. Design sprint lead" /></div>
-                  <div className="item-cell item-qty"><label className="visually-hidden" htmlFor={`qty-${index}`}>Quantity, line {index + 1}</label><input id={`qty-${index}`} inputMode="numeric" value={item.quantity} onChange={(event) => updateItem(index, "quantity", event.target.value)} placeholder="1" /></div>
-                  <div className="item-cell item-rate"><label className="visually-hidden" htmlFor={`rate-${index}`}>Unit rate, line {index + 1}</label><div className="input-prefix"><span>{data.currency || "USD"}</span><input id={`rate-${index}`} inputMode="decimal" value={item.unitAmount} onChange={(event) => updateItem(index, "unitAmount", event.target.value)} placeholder="0.00" /></div></div>
-                  <div className="item-cell item-action">{data.items.length > 1 && <button type="button" className="icon-button" onClick={() => removeItem(index)} aria-label={`Remove line ${index + 1}`}><Icon name="trash" size={16} /></button>}</div>
-                </div>)}
+              <div className="line-items-head">
+                <span>Service or deliverable</span>
+                <span>Qty</span>
+                <span>Unit rate</span>
+                <span className="line-action-label">Remove</span>
               </div>
-              <button type="button" className="button-inline" onClick={addItem}><Icon name="plus" size={16} />Add a line item</button>
+              <div className="line-items-list">
+                {data.items.map((item, index) => (
+                  <div className="line-item" key={index}>
+                    <label className="visually-hidden" htmlFor={`item-description-${index}`}>Service or deliverable, line {index + 1}</label>
+                    <input
+                      id={`item-description-${index}`}
+                      value={item.description}
+                      onChange={(event) => updateItem(index, "description", event.target.value)}
+                      placeholder="e.g. Design sprint lead"
+                    />
+                    <label className="visually-hidden" htmlFor={`item-quantity-${index}`}>Quantity, line {index + 1}</label>
+                    <input
+                      id={`item-quantity-${index}`}
+                      type="number"
+                      min="1"
+                      step="1"
+                      inputMode="numeric"
+                      value={item.quantity}
+                      onChange={(event) => updateItem(index, "quantity", event.target.value)}
+                    />
+                    <label className="visually-hidden" htmlFor={`item-rate-${index}`}>Unit rate, line {index + 1}</label>
+                    <div className="rate-input">
+                      <span>{data.currency || "USD"}</span>
+                      <input
+                        id={`item-rate-${index}`}
+                        inputMode="decimal"
+                        value={item.unitAmount}
+                        onChange={(event) => updateItem(index, "unitAmount", event.target.value)}
+                        placeholder="0.00"
+                      />
+                    </div>
+                    <button
+                      type="button"
+                      className="icon-button remove-line"
+                      onClick={() => removeItem(index)}
+                      disabled={data.items.length === 1}
+                      aria-label={`Remove line ${index + 1}`}
+                    >
+                      <Icon name="trash" size={17} />
+                    </button>
+                  </div>
+                ))}
+              </div>
+              <button type="button" className="add-line" onClick={addItem}>
+                <Icon name="plus" size={16} />Add a line item
+              </button>
+              <div className="invoice-total">
+                <span>Invoice total</span>
+                <strong>{formatMoney(previewMinor, data.currency)}</strong>
+              </div>
             </fieldset>
-
-            <div className="form-summary">
-              <span className="summary-label">Invoice total</span>
-              <strong className="summary-amount">{formatMoney(previewMinor, data.currency)}</strong>
-            </div>
 
             {aiUsed && <div className="suggestion-banner"><span className="suggestion-icon"><Icon name="spark" size={17} /></span><p><strong>AI suggestions added.</strong> Verify the business names, PO number, and terms against the source evidence before approval.</p></div>}
 
