@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { recordWebhook } from "@/lib/db";
+import { recordWebhook, completeDonationCapture, updateDisbursementStatus, getDonation } from "@/lib/db";
 import { getPayPalAccessToken } from "@/lib/paypal";
 import { assembleDisputeEvidencePackage, type PayPalDisputeEvent } from "@/lib/dispute";
 
@@ -90,7 +90,97 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // 1. Process Customer Dispute Events (CUSTOMER.DISPUTE.*)
+    // 1. Process Orders & Donation Captures
+    if (eventType === "PAYMENT.CAPTURE.COMPLETED") {
+      const resource = (event.resource || {}) as Record<string, unknown>;
+      const captureId = resource.id as string;
+      const supp = resource.supplementary_data as Record<string, unknown> | undefined;
+      const related = supp?.related_ids as Record<string, string> | undefined;
+      const orderId = related?.order_id || captureId;
+      const payer = resource.payer as Record<string, unknown> | undefined;
+      const payerEmail = payer?.email_address as string | undefined;
+
+      if (orderId && captureId) {
+        await completeDonationCapture({
+          id: orderId,
+          captureId,
+          payerEmail,
+        }).catch((err) => console.error("Webhook donation capture update error:", err));
+      }
+
+      const processed = await recordWebhook(eventId, eventType, orderId, "COMPLETED");
+      return NextResponse.json({
+        received: true,
+        duplicate: !processed,
+        eventId,
+        eventType,
+        handled: false,
+      }, { status: 200 });
+    }
+
+    if (eventType === "CHECKOUT.ORDER.APPROVED") {
+      const resource = (event.resource || {}) as Record<string, unknown>;
+      const orderId = resource.id as string;
+      if (orderId) {
+        const donation = await getDonation(orderId);
+        if (donation && donation.status === "CREATED") {
+          const origin = req.nextUrl.origin || process.env.APP_URL || "https://invoice-ready.graceperez769.workers.dev";
+          fetch(`${origin}/api/donations/${orderId}/capture`, { method: "POST" }).catch(() => {});
+        }
+      }
+      await recordWebhook(eventId, eventType, orderId, "APPROVED");
+      return NextResponse.json({ received: true, eventId, eventType }, { status: 200 });
+    }
+
+    // 2. Process PayPal Payouts Events
+    if (eventType === "PAYMENT.PAYOUTS-ITEM.SUCCEEDED") {
+      const resource = (event.resource || {}) as Record<string, unknown>;
+      const payoutHeader = (resource.payout_item_header || {}) as Record<string, string>;
+      const batchId = (resource.payout_batch_id || payoutHeader.payout_batch_id) as string;
+      const senderBatchId = (resource.sender_batch_id || payoutHeader.sender_batch_id) as string;
+      const itemId = (resource.payout_item_id || payoutHeader.payout_item_id) as string;
+      const disbId = senderBatchId || batchId;
+
+      if (disbId) {
+        await updateDisbursementStatus({
+          id: disbId,
+          status: "PAID",
+          payoutBatchId: batchId,
+          payoutItemId: itemId,
+        }).catch((err) => console.error("Payout webhook update error:", err));
+      }
+
+      await recordWebhook(eventId, eventType, disbId, "PAID");
+      return NextResponse.json({ received: true, eventId, eventType, status: "PAID" }, { status: 200 });
+    }
+
+    if (
+      eventType === "PAYMENT.PAYOUTS-ITEM.FAILED" ||
+      eventType === "PAYMENT.PAYOUTS-ITEM.BLOCKED" ||
+      eventType === "PAYMENT.PAYOUTS-ITEM.RETURNED" ||
+      eventType === "PAYMENT.PAYOUTS-ITEM.UNCLAIMED"
+    ) {
+      const resource = (event.resource || {}) as Record<string, unknown>;
+      const payoutHeader = (resource.payout_item_header || {}) as Record<string, string>;
+      const batchId = (resource.payout_batch_id || payoutHeader.payout_batch_id) as string;
+      const senderBatchId = (resource.sender_batch_id || payoutHeader.sender_batch_id) as string;
+      const itemId = (resource.payout_item_id || payoutHeader.payout_item_id) as string;
+      const disbId = senderBatchId || batchId;
+
+      if (disbId) {
+        await updateDisbursementStatus({
+          id: disbId,
+          status: "FAILED",
+          payoutBatchId: batchId,
+          payoutItemId: itemId,
+        }).catch((err) => console.error("Payout failure webhook error:", err));
+      }
+
+      await recordWebhook(eventId, eventType, disbId, "FAILED");
+      return NextResponse.json({ received: true, eventId, eventType, status: "FAILED" }, { status: 200 });
+    }
+
+    // 3. Process Customer Dispute Events (CUSTOMER.DISPUTE.*)
     if (eventType.startsWith("CUSTOMER.DISPUTE.")) {
       const disputeEvent = event as unknown as PayPalDisputeEvent;
       const resource = disputeEvent.resource || {};
@@ -122,7 +212,7 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // 2. Process Standard Invoicing Events (INVOICING.INVOICE.*)
+    // 4. Process Standard Invoicing Events (INVOICING.INVOICE.*)
     if (eventType.startsWith("INVOICING.INVOICE.")) {
       const resource = (typeof event.resource === "object" && event.resource !== null ? event.resource : {}) as Record<string, unknown>;
       const invoiceId = typeof resource.id === "string" ? resource.id : typeof resource.invoice_id === "string" ? resource.invoice_id : null;
@@ -149,7 +239,7 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // 3. Acknowledge Any Other Valid Signed PayPal Event
+    // 5. Acknowledge Any Other Valid Signed PayPal Event
     const processed = await recordWebhook(eventId, eventType, null, null);
     return NextResponse.json(
       {

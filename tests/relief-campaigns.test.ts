@@ -61,6 +61,7 @@ describe("Relief Ready Campaign & Inflow Math", () => {
     assert.equal(disbursements.length, initialDisbursements.length + 1);
     assert.equal(disbursements[0].paypalInvoiceId, "INV2-TEST-1234-5678");
     assert.equal(disbursements[0].status, "PAID_VIA_PAYPAL");
+    assert.ok(newRecord.id.startsWith("DISB-"));
     const updatedMed = campaigns.find((c) => c.id === "CAMP-MED-01");
     assert.equal(updatedMed?.disbursedMinor, 4070000 + 250000);
   });

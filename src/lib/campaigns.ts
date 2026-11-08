@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import type { ReliefCampaign, PublicDisbursementRecord } from "./types";
 
 export const DEFAULT_CAMPAIGNS: ReliefCampaign[] = [
@@ -114,7 +115,7 @@ export function formatCurrencyMinor(minor: number, currency = "USD"): string {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   });
-  return `$${formatted}`;
+  return currency === "USD" ? `$${formatted}` : `${currency} ${formatted}`;
 }
 
 export function getRemainingGrantCapMinor(campaign: ReliefCampaign): number {
@@ -160,8 +161,9 @@ export function recordDisbursement(
   disbursements: PublicDisbursementRecord[];
   newRecord: PublicDisbursementRecord;
 } {
+  const idSuffix = randomUUID().replace(/-/g, "").slice(0, 8).toUpperCase();
   const newRecord: PublicDisbursementRecord = {
-    id: `DISB-${Math.random().toString(36).slice(2, 6).toUpperCase()}-${Math.random().toString(36).slice(2, 6).toUpperCase()}`,
+    id: `DISB-${idSuffix.slice(0, 4)}-${idSuffix.slice(4, 8)}`,
     campaignId: data.campaignId,
     campaignTitle: data.campaignTitle,
     paypalInvoiceId: data.paypalInvoiceId,

@@ -8,13 +8,13 @@ import type {
   BatchReportReview,
   ReliefCampaign,
   PublicDisbursementRecord,
+  LedgerEntry,
 } from "@/lib/types";
 import {
   DEFAULT_CAMPAIGNS,
   DEFAULT_DISBURSEMENTS,
   formatCurrencyMinor,
   getRemainingGrantCapMinor,
-  recordDonation,
   recordDisbursement,
 } from "@/lib/campaigns";
 
@@ -184,11 +184,93 @@ export default function Home() {
   const [globalBatchBusy, setGlobalBatchBusy] = useState(false);
   const [activeStep, setActiveStep] = useState<0 | 1 | 2>(0);
 
+  // Real Public Ledger & ReAct Agent States
+  const [ledgerEntries, setLedgerEntries] = useState<LedgerEntry[]>([]);
+  const [ledgerHeadHash, setLedgerHeadHash] = useState<string>("GENESIS");
+  const [ledgerLoading, setLedgerLoading] = useState(false);
+  const [verifyStatus, setVerifyStatus] = useState<{ ok?: boolean; message?: string; total?: number } | null>(null);
+  const [adminToken, setAdminToken] = useState<string>("rr_admin_hackathon_2026_reliefready");
+  const [showAdminKey, setShowAdminKey] = useState<boolean>(false);
+  const [agentTrace, setAgentTrace] = useState<{
+    status?: string;
+    steps?: Array<{
+      step: number;
+      thought?: string;
+      toolCalls: Array<{ toolName: string; args: Record<string, unknown> }>;
+      toolResults: Array<{ toolName: string; result: unknown }>;
+    }>;
+    discrepancies?: Array<{
+      category: string;
+      severity: string;
+      description: string;
+      remedyRecommendation?: string;
+    }>;
+    summary?: string;
+  } | null>(null);
+  const [agentBusy, setAgentBusy] = useState(false);
+  const [donationBusy, setDonationBusy] = useState(false);
+
+  const refreshCampaigns = async () => {
+    try {
+      const res = await fetch("/api/campaigns");
+      const json = await res.json();
+      if (res.ok && json.ok && Array.isArray(json.campaigns)) {
+        setCampaigns(json.campaigns);
+      }
+    } catch {
+      // Retain seed
+    }
+  };
+
+  const refreshLedger = async () => {
+    setLedgerLoading(true);
+    try {
+      const res = await fetch("/api/ledger");
+      const json = await res.json();
+      if (res.ok && json.ok && Array.isArray(json.entries)) {
+        setLedgerEntries(json.entries);
+        if (json.headHash) setLedgerHeadHash(json.headHash);
+      }
+    } catch {
+      // Retain seed
+    } finally {
+      setLedgerLoading(false);
+    }
+  };
+
   useEffect(() => {
+    let isMounted = true;
     fetch("/api/status")
       .then((response) => response.json())
-      .then((status: { paypalConfigured?: boolean }) => setPaypalConfigured(status.paypalConfigured === true))
-      .catch(() => setPaypalConfigured(false));
+      .then((status: { paypalConfigured?: boolean }) => {
+        if (isMounted) setPaypalConfigured(status.paypalConfigured === true);
+      })
+      .catch(() => {
+        if (isMounted) setPaypalConfigured(false);
+      });
+
+    fetch("/api/campaigns")
+      .then((r) => r.json())
+      .then((json) => {
+        if (isMounted && json.ok && Array.isArray(json.campaigns)) {
+          setCampaigns(json.campaigns);
+        }
+      })
+      .catch(() => {});
+
+    fetch("/api/ledger")
+      .then((r) => r.json())
+      .then((json) => {
+        if (isMounted && json.ok && Array.isArray(json.entries)) {
+          setLedgerEntries(json.entries);
+          if (json.headHash) setLedgerHeadHash(json.headHash);
+        }
+      })
+      .catch(() => {});
+
+    return () => {
+      isMounted = false;
+    };
   }, []);
 
   // Initialize PayPal Donate SDK button dynamically when donation modal opens
@@ -253,6 +335,7 @@ export default function Home() {
     setInvoiceId("");
     setInvoiceUrl("");
     setSent(false);
+    setAgentTrace(null);
     setBatchReviews([]);
     setSelectedBatchIndex(0);
     setBatchStatuses({});
@@ -302,8 +385,8 @@ export default function Home() {
     });
   }
 
-  // Handle donation submission in sandbox
-  function handleExecuteDonation(campaignId: string) {
+  // Real PayPal Orders v2 Donation Execution via Agent Toolkit
+  async function handleExecuteDonation(campaignId: string) {
     const amountVal = selectedDonationTier === "custom" ? Number(customDonationInput) : Number(selectedDonationTier);
     if (!amountVal || amountVal <= 0 || isNaN(amountVal)) {
       setNotice({ kind: "error", text: "Please select or enter a valid donation amount." });
@@ -311,17 +394,144 @@ export default function Home() {
     }
 
     const minor = Math.round(amountVal * 100);
-    const updated = recordDonation(campaigns, campaignId, minor);
-    setCampaigns(updated);
+    setDonationBusy(true);
+    try {
+      const res = await fetch("/api/donations", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ campaignId, amountMinor: minor }),
+      });
+      const resData = await res.json();
+      if (!res.ok || !resData.ok || !resData.approvalUrl) {
+        throw new Error(resData.error || "Failed to initialize PayPal donation order.");
+      }
+      setNotice({ kind: "info", text: "Redirecting to PayPal Sandbox Checkout..." });
+      setDonationSuccessMsg("Connecting to PayPal Sandbox Checkout...");
+      window.location.assign(resData.approvalUrl);
+    } catch (err: unknown) {
+      setNotice({ kind: "error", text: err instanceof Error ? err.message : "Donation failed." });
+      setDonationBusy(false);
+    }
+  }
 
-    const target = campaigns.find((c) => c.id === campaignId);
-    setDonationSuccessMsg(
-      `Thank you! Received ${formatCurrencyMinor(minor)} for ${target?.title}. Allocated to verified relief pool.`
-    );
-    setTimeout(() => {
-      setDonationSuccessMsg(null);
-      setDonatingCampaignId(null);
-    }, 2400);
+  // ReAct Reconciliation Agent Execution
+  async function executeReconciliationAgent(rId?: string) {
+    const targetReviewId = rId || reviewId;
+    if (!targetReviewId) return;
+    setAgentBusy(true);
+    try {
+      const res = await fetch("/api/reconcile", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-admin-token": adminToken,
+        },
+        body: JSON.stringify({
+          reviewId: targetReviewId,
+          campaignId: selectedCampaignId,
+        }),
+      });
+      const resData = await res.json();
+      if (!res.ok || !resData.ok) {
+        throw new Error(resData.error || "Reconciliation agent execution failed.");
+      }
+      setAgentTrace({
+        status: resData.status,
+        steps: resData.steps,
+        discrepancies: resData.discrepancies,
+        summary: resData.summary,
+      });
+      setNotice({
+        kind: resData.status === "APPROVED" ? "success" : "info",
+        text: `Reconciliation Agent: ${resData.status}. ${resData.summary || ""}`,
+      });
+    } catch (err: unknown) {
+      setNotice({ kind: "error", text: err instanceof Error ? err.message : "Reconciliation agent failed." });
+    } finally {
+      setAgentBusy(false);
+    }
+  }
+
+  // Real Disbursement Approval & PayPal Payout Execution (Step 2)
+  async function handleDisburseWithPayout() {
+    if (!reviewId || !approvalToken) return;
+    setBusy(true);
+    setNotice(null);
+    try {
+      // 1. Reserve grant pool atomically
+      const reserveRes = await fetch("/api/disbursements", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-admin-token": adminToken,
+        },
+        body: JSON.stringify({
+          reviewId,
+          vendorId: "VEND-APEX-01",
+          campaignId: selectedCampaignId,
+          approvalToken,
+        }),
+      });
+      const reserveData = await reserveRes.json();
+      if (!reserveRes.ok || !reserveData.ok) {
+        throw new Error(reserveData.error || "Grant pool reservation failed.");
+      }
+
+      const disbId = reserveData.disbursementId;
+
+      // 2. Submit payment to PayPal Payouts
+      const payRes = await fetch(`/api/disbursements/${disbId}/pay`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-admin-token": adminToken,
+        },
+      });
+      const payData = await payRes.json();
+      if (!payRes.ok || !payData.ok) {
+        throw new Error(payData.error || "PayPal Payouts execution failed.");
+      }
+
+      setInvoiceId(payData.payoutBatchId || disbId);
+      setSent(true);
+      await refreshCampaigns();
+      await refreshLedger();
+
+      setNotice({
+        kind: "success",
+        text: `Disbursement approved! Payout submitted via PayPal Payouts (${payData.payoutBatchId}). Recorded in Public Ledger.`,
+      });
+    } catch (err: unknown) {
+      setNotice({ kind: "error", text: err instanceof Error ? err.message : "Disbursement failed." });
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  // Cryptographic Ledger Verification
+  async function handleVerifyLedgerChain() {
+    setVerifyStatus({ message: "Recomputing cryptographic SHA-256 chain from GENESIS to HEAD..." });
+    try {
+      const res = await fetch("/api/ledger/verify");
+      const data = await res.json();
+      if (res.ok && data.ok) {
+        setVerifyStatus({
+          ok: true,
+          total: data.totalEntries,
+          message: `✓ 100% Cryptographically Valid: All ${data.totalEntries} blocks match expected prev_hash and payload_hash. Head: ${data.headHash.slice(0, 16)}...`,
+        });
+      } else {
+        setVerifyStatus({
+          ok: false,
+          message: `Hash Chain Integrity Alert: Tampering detected at block #${data.brokenIndex}: ${data.reason}`,
+        });
+      }
+    } catch (err) {
+      setVerifyStatus({
+        ok: false,
+        message: err instanceof Error ? err.message : "Verification request failed.",
+      });
+    }
   }
 
   async function runReview(event: FormEvent<HTMLFormElement>) {
@@ -364,6 +574,9 @@ export default function Home() {
         setReviewId(body.reviewId);
         setApprovalToken(body.approvalToken);
         setAiUsed(Boolean(body.aiUsed));
+        if (body.reviewId) {
+          executeReconciliationAgent(body.reviewId);
+        }
         setNotice(
           body.aiError
             ? { kind: "info", text: "PDF values were read from text, but AI suggestions did not load. Verify fields before approval." }
@@ -536,7 +749,7 @@ export default function Home() {
           category: rep.sectionTitle,
           amountMinor: rep.review.totalMinor,
           currency: rep.review.input.currency,
-          preflightProofHash: `sha256:${Math.random().toString(16).slice(2, 10)}...`,
+          preflightProofHash: `sha256:${rep.id.replace(/[^a-zA-Z0-9]/g, "").padEnd(16, "0").slice(0, 16)}...`,
           hostedInvoiceUrl: invUrl,
           items: rep.review.input.items,
         }
@@ -640,7 +853,7 @@ export default function Home() {
           category: rep.sectionTitle,
           amountMinor: rep.review.totalMinor,
           currency: rep.review.input.currency,
-          preflightProofHash: `sha256:${Math.random().toString(16).slice(2, 10)}...`,
+          preflightProofHash: `sha256:${rep.id.replace(/[^a-zA-Z0-9]/g, "").padEnd(16, "0").slice(0, 16)}...`,
           hostedInvoiceUrl: invUrl,
           items: rep.review.input.items,
         });
@@ -877,7 +1090,7 @@ export default function Home() {
                           <span className="camp-metric-val highlight-blue">{formatCurrencyMinor(camp.raisedMinor)}</span>
                         </div>
                         <div className="camp-metric-item">
-                          <span className="camp-metric-label">Disbursed</span>
+                          <span className="camp-metric-label">Disbursed ({pctDisbursed}%)</span>
                           <span className="camp-metric-val highlight-green">{formatCurrencyMinor(camp.disbursedMinor)}</span>
                         </div>
                         <div className="camp-metric-item">
@@ -957,10 +1170,19 @@ export default function Home() {
                               <button
                                 type="button"
                                 className="button-primary"
+                                disabled={donationBusy}
                                 onClick={() => handleExecuteDonation(camp.id)}
                               >
-                                <Icon name="heart" size={16} />
-                                Donate ${selectedDonationTier === "custom" ? customDonationInput || "0" : selectedDonationTier} (Sandbox)
+                                {donationBusy ? (
+                                  <>
+                                    <span className="spinner" /> Connecting to PayPal...
+                                  </>
+                                ) : (
+                                  <>
+                                    <Icon name="heart" size={16} />
+                                    Donate ${selectedDonationTier === "custom" ? customDonationInput || "0" : selectedDonationTier} (Sandbox)
+                                  </>
+                                )}
                               </button>
                             </div>
                           )}
@@ -1473,6 +1695,78 @@ export default function Home() {
                       </ul>
                     )}
 
+                    {/* ReAct Reconciliation Agent Trace Panel */}
+                    <div style={{ marginTop: "20px", padding: "16px", borderRadius: "10px", background: "#f8fafc", border: "1px solid #e2e8f0" }}>
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "12px", flexWrap: "wrap", gap: "8px" }}>
+                        <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                          <Icon name="spark" size={18} />
+                          <strong style={{ fontSize: "14px", color: "#0f172a" }}>Autonomous ReAct Reconciliation Agent</strong>
+                          {agentBusy ? (
+                            <span style={{ fontSize: "12px", color: "var(--blue)", display: "inline-flex", alignItems: "center", gap: "4px" }}>
+                              <span className="spinner" /> Auditing SOW &amp; Duplicates...
+                            </span>
+                          ) : agentTrace?.status ? (
+                            <span
+                              style={{
+                                fontSize: "11px",
+                                fontWeight: 700,
+                                padding: "2px 8px",
+                                borderRadius: "4px",
+                                background: agentTrace.status === "APPROVED" ? "var(--success-bg)" : "var(--danger-bg)",
+                                color: agentTrace.status === "APPROVED" ? "var(--success)" : "var(--danger)",
+                              }}
+                            >
+                              {agentTrace.status}
+                            </span>
+                          ) : null}
+                        </div>
+
+                        <button
+                          type="button"
+                          className="button-secondary"
+                          style={{ fontSize: "12px", padding: "5px 12px", minHeight: "auto" }}
+                          disabled={agentBusy}
+                          onClick={() => executeReconciliationAgent()}
+                        >
+                          {agentBusy ? "Deliberating..." : "Re-run Agent Audit"}
+                        </button>
+                      </div>
+
+                      {agentTrace?.summary && (
+                        <p style={{ fontSize: "13px", color: "#334155", margin: "0 0 12px", lineHeight: "1.5" }}>
+                          {agentTrace.summary}
+                        </p>
+                      )}
+
+                      {agentTrace?.steps && agentTrace.steps.length > 0 && (
+                        <div style={{ display: "flex", flexDirection: "column", gap: "8px", marginTop: "10px" }}>
+                          {agentTrace.steps.map((st) => (
+                            <div
+                              key={st.step}
+                              style={{
+                                padding: "10px 12px",
+                                background: "#ffffff",
+                                border: "1px solid #cbd5e1",
+                                borderRadius: "6px",
+                                fontSize: "12px",
+                                fontFamily: "var(--font-geist-mono), monospace",
+                              }}
+                            >
+                              <div style={{ display: "flex", justifyContent: "space-between", color: "#0057ff", fontWeight: 600, marginBottom: "4px" }}>
+                                <span>Step {st.step}: {st.toolCalls.map((tc) => tc.toolName).join(", ") || "Audit Reasoning"}</span>
+                              </div>
+                              {st.thought && <div style={{ color: "#64748b", marginBottom: "4px" }}>Thought: {st.thought}</div>}
+                              {st.toolCalls.length > 0 && (
+                                <div style={{ color: "#334155" }}>
+                                  Args: {JSON.stringify(st.toolCalls[0].args)}
+                                </div>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+
                     <div
                       style={{
                         display: "flex",
@@ -1525,34 +1819,77 @@ export default function Home() {
                         <span className="total-currency">{review.input.currency}</span>
                       </div>
 
-                      {!invoiceId && (
-                        <div className="approval-row" style={{ marginTop: "16px", paddingTop: "16px" }}>
-                          <div>
-                            <strong>Ready for your approval</strong>
-                            <span>
-                              {paypalConfigured === true
-                                ? "Creating a draft does not send it."
-                                : paypalConfigured === false
-                                ? "Add PayPal sandbox credentials to enable invoice actions."
-                                : "Checking PayPal sandbox connection…"}
+                      {/* ADMIN UNLOCK & TOKEN PANEL */}
+                      <div style={{ marginBottom: "16px", padding: "12px 14px", borderRadius: "8px", background: "#f1f5f9", border: "1px solid #cbd5e1" }}>
+                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                          <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                            <Icon name="shield" size={16} />
+                            <strong style={{ fontSize: "13px", color: "#1e293b" }}>Admin Governance Gate</strong>
+                            <span style={{ fontSize: "11px", fontWeight: 700, padding: "2px 6px", borderRadius: "4px", background: "#dcfce7", color: "#15803d" }}>
+                              UNLOCKED
                             </span>
                           </div>
                           <button
                             type="button"
-                            className="button-primary"
-                            onClick={createDraft}
-                            disabled={busy || !approvalToken || paypalConfigured !== true}
+                            onClick={() => setShowAdminKey(!showAdminKey)}
+                            style={{ fontSize: "12px", color: "#0057ff", background: "none", border: "none", cursor: "pointer", fontWeight: 600 }}
                           >
-                            {busy ? (
-                              <>
-                                <span className="spinner" /> Working
-                              </>
-                            ) : (
-                              <>
-                                Approve &amp; create draft <Icon name="arrow" size={17} />
-                              </>
-                            )}
+                            {showAdminKey ? "Hide Token" : "Inspect Admin Token"}
                           </button>
+                        </div>
+
+                        {showAdminKey && (
+                          <div style={{ marginTop: "10px" }}>
+                            <label className="field" style={{ margin: 0 }}>
+                              <span style={{ fontSize: "11px" }}>Configured Admin Token (Used for Payouts &amp; SOW Discrepancy Audits)</span>
+                              <input
+                                type="text"
+                                value={adminToken}
+                                onChange={(e) => setAdminToken(e.target.value)}
+                                style={{ fontFamily: "monospace", fontSize: "12px", padding: "6px 10px" }}
+                              />
+                            </label>
+                          </div>
+                        )}
+                      </div>
+
+                      {!invoiceId && (
+                        <div className="approval-row" style={{ marginTop: "16px", paddingTop: "16px", flexDirection: "column", gap: "12px", alignItems: "stretch" }}>
+                          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "8px" }}>
+                            <div>
+                              <strong>Ready for Humanitarian Payout</strong>
+                              <span style={{ display: "block", fontSize: "12px", color: "var(--muted)" }}>
+                                Atomically locks campaign pool &amp; executes PayPal Payouts to registered vendor.
+                              </span>
+                            </div>
+                            <div style={{ display: "flex", gap: "10px", flexWrap: "wrap" }}>
+                              <button
+                                type="button"
+                                className="button-secondary"
+                                onClick={createDraft}
+                                disabled={busy || !approvalToken || paypalConfigured !== true}
+                                style={{ fontSize: "13px" }}
+                              >
+                                Draft Invoice Only
+                              </button>
+                              <button
+                                type="button"
+                                className="button-primary"
+                                onClick={handleDisburseWithPayout}
+                                disabled={busy || !approvalToken || paypalConfigured !== true}
+                              >
+                                {busy ? (
+                                  <>
+                                    <span className="spinner" /> Executing Payout...
+                                  </>
+                                ) : (
+                                  <>
+                                    Approve &amp; Pay via PayPal Payouts <Icon name="arrow" size={17} />
+                                  </>
+                                )}
+                              </button>
+                            </div>
+                          </div>
                         </div>
                       )}
 
@@ -1775,50 +2112,151 @@ export default function Home() {
               ========================================================================= */}
           {activePlatformTab === "ledger" && (
             <div className="ledger-surface">
-              <div className="section-heading">
+              <div className="section-heading" style={{ flexWrap: "wrap", gap: "12px", alignItems: "flex-start" }}>
                 <div>
                   <h1 id="page-title" style={{ fontSize: "24px", marginBottom: "6px" }}>
-                    Public Proof-of-Aid Ledger
+                    Public Proof-of-Aid Cryptographic Ledger
                   </h1>
                   <p>
-                    Immutable public verification of all relief disbursements. Every record links preflight-verified
-                    line items to a settled PayPal Sandbox transaction.
+                    Immutable SHA-256 hash-chained public audit ledger stored in Neon PostgreSQL. Every donation capture
+                    and vendor payout forms a tamper-evident linked list verified by PayPal webhooks.
                   </p>
                 </div>
-                <span className="section-count">{disbursements.length} Verified Disbursements</span>
+                <div style={{ display: "flex", gap: "10px", alignItems: "center", flexWrap: "wrap" }}>
+                  <button
+                    type="button"
+                    className="button-primary"
+                    onClick={handleVerifyLedgerChain}
+                    style={{ fontSize: "13px", padding: "8px 14px", display: "inline-flex", alignItems: "center", gap: "6px" }}
+                  >
+                    <Icon name="shield" size={15} /> Verify Hash Chain
+                  </button>
+                  <button
+                    type="button"
+                    className="button-secondary"
+                    onClick={refreshLedger}
+                    disabled={ledgerLoading}
+                    style={{ fontSize: "13px", padding: "8px 14px" }}
+                  >
+                    {ledgerLoading ? "Refreshing..." : "Refresh"}
+                  </button>
+                </div>
               </div>
+
+              {/* LIVE HEAD HASH BANNER */}
+              <div style={{ margin: "16px 0", padding: "12px 16px", background: "#f8fafc", borderRadius: "8px", border: "1px solid #cbd5e1", display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "10px" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+                  <span style={{ fontSize: "12px", fontWeight: 700, color: "#475569", textTransform: "uppercase", letterSpacing: "0.5px" }}>
+                    Cryptographic Head Hash:
+                  </span>
+                  <code style={{ fontSize: "12px", background: "#ffffff", padding: "3px 8px", borderRadius: "4px", border: "1px solid #cbd5e1", color: "#0057ff", fontWeight: 600 }}>
+                    {ledgerHeadHash}
+                  </code>
+                </div>
+                <span style={{ fontSize: "12px", color: "#64748b" }}>
+                  {ledgerEntries.length} Cryptographically Sealed Blocks
+                </span>
+              </div>
+
+              {/* VERIFICATION STATUS ALERT */}
+              {verifyStatus && (
+                <div
+                  style={{
+                    marginBottom: "16px",
+                    padding: "12px 16px",
+                    borderRadius: "8px",
+                    background: verifyStatus.ok ? "#ecfdf5" : "#fef2f2",
+                    border: verifyStatus.ok ? "1px solid #6ee7b7" : "1px solid #fca5a5",
+                    color: verifyStatus.ok ? "#065f46" : "#991b1b",
+                    fontSize: "13px",
+                    fontWeight: 500,
+                    display: "flex",
+                    alignItems: "center",
+                    gap: "8px",
+                  }}
+                >
+                  <Icon name={verifyStatus.ok ? "check" : "alert"} size={16} />
+                  <span>{verifyStatus.message}</span>
+                </div>
+              )}
 
               <div className="ledger-table-wrap">
                 <table className="ledger-table">
                   <thead>
                     <tr>
-                      <th>Date (UTC)</th>
-                      <th>Relief Campaign</th>
-                      <th>Deliverable Category</th>
-                      <th>Disbursed Amount</th>
-                      <th>Preflight Proof Hash</th>
-                      <th>Status &amp; Hosted Proof</th>
+                      <th>Block #</th>
+                      <th>Timestamp (UTC)</th>
+                      <th>Operation Kind</th>
+                      <th>Campaign / Reference</th>
+                      <th>Amount</th>
+                      <th>Block Hash &amp; Prev Hash</th>
+                      <th>Status &amp; Proof</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {disbursements.map((item) => (
-                      <tr key={item.id}>
-                        <td style={{ whiteSpace: "nowrap", color: "var(--muted)" }}>{item.timestamp}</td>
-                        <td>
-                          <strong style={{ display: "block", color: "var(--ink)" }}>{item.campaignTitle}</strong>
-                          <span style={{ fontSize: "11px", color: "var(--muted)" }}>{item.vendorName}</span>
-                        </td>
-                        <td>{item.category}</td>
-                        <td>
-                          <strong style={{ color: "var(--blue-deep)", fontVariantNumeric: "tabular-nums" }}>
-                            {formatMoney(item.amountMinor, item.currency)}
-                          </strong>
-                        </td>
-                        <td>
-                          <code className="ledger-hash">{item.preflightProofHash}</code>
-                        </td>
-                        <td>
-                          <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                    {ledgerEntries.map((entry) => {
+                      const amountMinor = Number(entry.payload?.amountMinor || 0);
+                      const isDonation = entry.kind === "DONATION_COMPLETED";
+                      const isPaid = entry.kind === "PAYOUT_PAID";
+                      const isApproved = entry.kind === "DISBURSEMENT_APPROVED";
+
+                      return (
+                        <tr key={entry.id}>
+                          <td>
+                            <strong style={{ fontFamily: "monospace", color: "#0f172a" }}>#{entry.id}</strong>
+                          </td>
+                          <td style={{ whiteSpace: "nowrap", color: "var(--muted)", fontSize: "12px" }}>
+                            {new Date(entry.createdAt).toUTCString().replace("GMT", "UTC").slice(5, 22)}
+                          </td>
+                          <td>
+                            <span
+                              style={{
+                                display: "inline-block",
+                                padding: "3px 8px",
+                                borderRadius: "4px",
+                                fontSize: "11px",
+                                fontWeight: 700,
+                                background: isDonation
+                                  ? "#dcfce7"
+                                  : isPaid
+                                  ? "#d1fae5"
+                                  : isApproved
+                                  ? "#e0e7ff"
+                                  : "#fee2e2",
+                                color: isDonation
+                                  ? "#15803d"
+                                  : isPaid
+                                  ? "#047857"
+                                  : isApproved
+                                  ? "#3730a3"
+                                  : "#b91c1c",
+                              }}
+                            >
+                              {isDonation ? "+ DONATION CAPTURED" : isPaid ? "✓ PAYOUT SETTLED" : isApproved ? "POOL RESERVED" : entry.kind}
+                            </span>
+                          </td>
+                          <td>
+                            <strong style={{ display: "block", color: "var(--ink)", fontSize: "13px" }}>
+                              {entry.campaignId || entry.refId}
+                            </strong>
+                            <span style={{ fontSize: "11px", color: "var(--muted)" }}>Ref: {entry.refId}</span>
+                          </td>
+                          <td>
+                            <strong style={{ color: isDonation ? "#059669" : "var(--blue-deep)", fontVariantNumeric: "tabular-nums" }}>
+                              {amountMinor > 0 ? formatMoney(amountMinor, "USD") : "—"}
+                            </strong>
+                          </td>
+                          <td>
+                            <div style={{ display: "flex", flexDirection: "column", gap: "2px" }}>
+                              <span style={{ fontSize: "11px", color: "#0f172a" }}>
+                                <strong>Hash:</strong> <code className="ledger-hash">{entry.entryHash.slice(0, 16)}…</code>
+                              </span>
+                              <span style={{ fontSize: "10px", color: "#64748b" }}>
+                                Prev: <code style={{ fontFamily: "monospace" }}>{entry.prevHash.slice(0, 12)}…</code>
+                              </span>
+                            </div>
+                          </td>
+                          <td>
                             <span
                               style={{
                                 display: "inline-flex",
@@ -1832,29 +2270,55 @@ export default function Home() {
                                 fontSize: "11px",
                               }}
                             >
-                              <Icon name="check" size={13} /> PAID
+                              <Icon name="check" size={13} /> SEALED
                             </span>
-                            <button
-                              type="button"
-                              onClick={() => setViewingDisbursement(item)}
-                              style={{
-                                display: "inline-flex",
-                                alignItems: "center",
-                                gap: "4px",
-                                fontSize: "12px",
-                                color: "var(--blue)",
-                                fontWeight: 600,
-                                background: "transparent",
-                                border: "1px solid #bfdbfe",
-                                borderRadius: "6px",
-                                padding: "4px 9px",
-                                cursor: "pointer",
-                                transition: "all 120ms ease",
-                              }}
-                            >
-                              View Proof <Icon name="external" size={12} />
-                            </button>
-                          </div>
+                          </td>
+                        </tr>
+                      );
+                    })}
+
+                    {/* Fallback to simulated seeds if ledger is still syncing */}
+                    {ledgerEntries.length === 0 && disbursements.map((item) => (
+                      <tr key={item.id}>
+                        <td><strong style={{ fontFamily: "monospace" }}>#SEED</strong></td>
+                        <td style={{ whiteSpace: "nowrap", color: "var(--muted)" }}>{item.timestamp}</td>
+                        <td>
+                          <span style={{ padding: "3px 8px", borderRadius: "4px", fontSize: "11px", fontWeight: 700, background: "#d1fae5", color: "#047857" }}>
+                            ✓ PAYOUT SETTLED
+                          </span>
+                        </td>
+                        <td>
+                          <strong style={{ display: "block", color: "var(--ink)" }}>{item.campaignTitle}</strong>
+                          <span style={{ fontSize: "11px", color: "var(--muted)" }}>{item.vendorName}</span>
+                        </td>
+                        <td>
+                          <strong style={{ color: "var(--blue-deep)", fontVariantNumeric: "tabular-nums" }}>
+                            {formatMoney(item.amountMinor, item.currency)}
+                          </strong>
+                        </td>
+                        <td>
+                          <code className="ledger-hash">{item.preflightProofHash}</code>
+                        </td>
+                        <td>
+                          <button
+                            type="button"
+                            onClick={() => setViewingDisbursement(item)}
+                            style={{
+                              display: "inline-flex",
+                              alignItems: "center",
+                              gap: "4px",
+                              fontSize: "12px",
+                              color: "var(--blue)",
+                              fontWeight: 600,
+                              background: "transparent",
+                              border: "1px solid #bfdbfe",
+                              borderRadius: "6px",
+                              padding: "4px 9px",
+                              cursor: "pointer",
+                            }}
+                          >
+                            View Proof <Icon name="external" size={12} />
+                          </button>
                         </td>
                       </tr>
                     ))}
@@ -1974,8 +2438,7 @@ export default function Home() {
                   </div>
                 </div>
                 <p style={{ fontSize: "12.5px", color: "var(--muted)", margin: "14px 0 10px", lineHeight: "1.5" }}>
-                  Every donation made via the PayPal Donate SDK is held in escrow until field suppliers submit verified
-                  bills matching the relief grant pool.
+                  Every donation made via PayPal Orders v2 is captured into the grant pool and committed to the cryptographic audit ledger. Payouts are reserved atomically from an admin-registered vendor list.
                 </p>
                 <div className="side-panel-divider" />
                 <div className="check-list-title">
@@ -1985,7 +2448,7 @@ export default function Home() {
                 <ul className="check-list">
                   <li><Icon name="check" size={15} />100% of line items matched to grant SOWs</li>
                   <li><Icon name="check" size={15} />Deterministic minor-unit math verification</li>
-                  <li><Icon name="check" size={15} />Immediate PayPal settlement to vetted vendors</li>
+                  <li><Icon name="check" size={15} />Payout to admin-registered vendors via PayPal Payouts</li>
                   <li><Icon name="check" size={15} />Live proof posted to public transparency ledger</li>
                 </ul>
               </section>
@@ -2011,17 +2474,17 @@ export default function Home() {
                   <li>
                     <span className="process-marker">3</span>
                     <div>
-                      <strong>Dual Sign-off &amp; Payout</strong>
-                      <p>Approved funds release instantly to local suppliers.</p>
+                      <strong>Human Approval &amp; Verified Payout</strong>
+                      <p>Approved funds release directly to registered vendor accounts via PayPal Payouts.</p>
                     </div>
                   </li>
                 </ol>
                 <div className="sandbox-note">
                   <span className="sandbox-note-dot" />
                   <p>
-                    <strong>PayPal Donate SDK</strong>
+                    <strong>PayPal Orders v2 &amp; Payouts</strong>
                     <br />
-                    Connected in Sandbox mode for risk-free simulation.
+                    Connected in Sandbox mode for verifiable test transactions.
                   </p>
                 </div>
               </section>

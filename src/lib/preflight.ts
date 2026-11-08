@@ -1,10 +1,48 @@
-import type { Finding, ReviewInput, ReviewResult } from "@/lib/types";
+import type { Finding, ReviewInput, ReviewResult, SOWRateCardItem } from "@/lib/types";
 
 function cents(value: string): number | null {
   if (!/^\d+(?:\.\d{1,2})?$/.test(value.trim())) return null;
   const [whole, fraction = ""] = value.trim().split(".");
   const amount = Number(whole) * 100 + Number((fraction + "00").slice(0, 2));
   return Number.isSafeInteger(amount) && amount > 0 ? amount : null;
+}
+
+function normalizeTokens(text: string): string[] {
+  return text
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, " ")
+    .split(/\s+/)
+    .filter((w) => w.length > 2);
+}
+
+function findMatchingRateCardItem(description: string, rateCard: SOWRateCardItem[]): SOWRateCardItem | null {
+  const itemTokens = new Set(normalizeTokens(description));
+  if (itemTokens.size === 0) return null;
+
+  let bestMatch: SOWRateCardItem | null = null;
+  let bestScore = 0;
+
+  for (const sowItem of rateCard) {
+    const sowTokens = normalizeTokens(sowItem.description);
+    if (sowTokens.length === 0) continue;
+
+    let overlap = 0;
+    for (const t of sowTokens) {
+      if (itemTokens.has(t)) overlap++;
+    }
+    const score = overlap / Math.max(sowTokens.length, itemTokens.size);
+    const normDesc = description.toLowerCase().trim();
+    const normSow = sowItem.description.toLowerCase().trim();
+    const isSubstring = normDesc.includes(normSow) || normSow.includes(normDesc);
+
+    const finalScore = isSubstring ? Math.max(score, 0.7) : score;
+    if (finalScore > bestScore && finalScore >= 0.25) {
+      bestScore = finalScore;
+      bestMatch = sowItem;
+    }
+  }
+
+  return bestMatch;
 }
 
 export function runPreflight(input: ReviewInput): ReviewResult {
@@ -46,6 +84,42 @@ export function runPreflight(input: ReviewInput): ReviewResult {
     if (cap === null) findings.push({ code: "invalid_po_cap", severity: "block", message: "PO cap must be a positive amount." });
     else if (totalMinor > cap) findings.push({ code: "po_cap_exceeded", severity: "block", message: "Invoice total exceeds the stated PO cap." });
   }
+
+  // SOW Rate Card Validation (Step 3)
+  if (input.sourceTerms?.rateCard && input.sourceTerms.rateCard.length > 0) {
+    input.items.forEach((item, index) => {
+      const match = findMatchingRateCardItem(item.description, input.sourceTerms!.rateCard!);
+      if (!match) {
+        findings.push({
+          code: `unauthorized_item_${index}`,
+          severity: "block",
+          message: `Line ${index + 1} ("${item.description}") is not authorized under the campaign SOW rate card.`,
+        });
+      } else {
+        const itemRate = cents(item.unitAmount);
+        const sowMaxRate = cents(match.maxUnitRate);
+        const qty = Number(item.quantity);
+
+        if (itemRate !== null && sowMaxRate !== null && itemRate > sowMaxRate) {
+          const excess = ((itemRate - sowMaxRate) / 100).toFixed(2);
+          findings.push({
+            code: `rate_exceeds_sow_${index}`,
+            severity: "block",
+            message: `Line ${index + 1} ("${item.description}") rate $${item.unitAmount} exceeds SOW maximum $${match.maxUnitRate} by $${excess}/unit.`,
+          });
+        }
+
+        if (match.maxQuantity !== undefined && Number.isSafeInteger(qty) && qty > match.maxQuantity) {
+          findings.push({
+            code: `quantity_exceeds_sow_${index}`,
+            severity: "block",
+            message: `Line ${index + 1} ("${item.description}") quantity ${qty} exceeds SOW allocation of ${match.maxQuantity}.`,
+          });
+        }
+      }
+    });
+  }
+
   if (!input.evidence?.length) findings.push({ code: "no_source_evidence", severity: "warning", message: "No searchable PO/SOW evidence was found. Confirm the invoice terms manually." });
   return { status: findings.some(f => f.severity === "block") ? "HOLD" : "READY", input, findings, totalMinor };
 }

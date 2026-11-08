@@ -24,7 +24,7 @@
     "PAYPAL_SANDBOX": "true",
     "PAYPAL_API_BASE_URL": "https://api-m.sandbox.paypal.com",
     "GEMINI_MODEL": "gemini-2.0-flash",
-    "APP_URL": "https://invoice-ready.workers.dev"
+    "APP_URL": "https://invoice-ready.graceperez769.workers.dev"
   },
   // Required secrets validated by Wrangler during deployment and local dev
   "secrets": {
@@ -34,7 +34,8 @@
       "PAYPAL_CLIENT_ID",
       "PAYPAL_CLIENT_SECRET",
       "PAYPAL_WEBHOOK_ID",
-      "GEMINI_API_KEY"
+      "GEMINI_API_KEY",
+      "ADMIN_TOKEN"
     ]
   }
 }
