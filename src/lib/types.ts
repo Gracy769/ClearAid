@@ -22,3 +22,33 @@ export type BatchReportReview = {
   approvalToken: string;
   review: ReviewResult;
 };
+
+export type ReliefCampaign = {
+  id: string;
+  title: string;
+  subtitle: string;
+  category: "Medical" | "Water & Sanitation" | "Shelter & Power" | "Food Logistics" | "Emergency Aid";
+  targetMinor: number;
+  raisedMinor: number;
+  disbursedMinor: number;
+  currency: string;
+  grantCode: string;
+  leadAgency: string;
+  disasterZone: string;
+  urgent?: boolean;
+};
+
+export type PublicDisbursementRecord = {
+  id: string;
+  campaignId: string;
+  campaignTitle: string;
+  paypalInvoiceId: string;
+  vendorName: string;
+  category: string;
+  amountMinor: number;
+  currency: string;
+  preflightProofHash: string;
+  timestamp: string;
+  hostedInvoiceUrl?: string;
+  status: "VERIFIED_DRAFT" | "PAID_VIA_PAYPAL";
+};

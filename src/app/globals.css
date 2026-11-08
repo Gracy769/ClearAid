@@ -323,6 +323,374 @@ input, select { caret-color: var(--blue); }
   .workspace-footer { grid-column: auto; }
 }
 
+/* ==========================================================================
+   Relief Ready Platform Navigation, Campaigns, Donate SDK & Ledger Styles
+   ========================================================================== */
+
+.platform-nav {
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+}
+.platform-nav-inner {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: min(1320px, calc(100% - 56px));
+  margin: 0 auto;
+  padding: 0;
+  overflow-x: auto;
+}
+.platform-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 14px 18px;
+  border: 0;
+  border-bottom: 3px solid transparent;
+  background: transparent;
+  color: var(--muted);
+  font-size: 13.5px;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all 140ms ease;
+}
+.platform-tab:hover {
+  color: var(--blue-deep);
+  background: var(--canvas);
+}
+.platform-tab.is-active {
+  color: var(--blue);
+  border-bottom-color: var(--blue);
+  background: transparent;
+  font-weight: 700;
+}
+.platform-tab-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2px 7px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 700;
+  background: #e2e8f0;
+  color: #334155;
+}
+.platform-tab.is-active .platform-tab-badge {
+  background: var(--blue);
+  color: #fff;
+}
+
+/* Global Metric Strip */
+.metric-strip {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 16px;
+  margin-bottom: 24px;
+}
+.metric-card {
+  padding: 18px 20px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  box-shadow: 0 4px 14px rgb(16 40 84 / 4%);
+}
+.metric-card-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin-bottom: 6px;
+}
+.metric-card-value {
+  font-size: 24px;
+  font-weight: 750;
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.03em;
+}
+.metric-card-sub {
+  font-size: 11.5px;
+  color: var(--muted);
+  margin-top: 4px;
+}
+
+/* Campaign Cards Grid */
+.campaigns-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+.campaign-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 26px;
+  box-shadow: var(--shadow-soft);
+  transition: transform 150ms ease, box-shadow 150ms ease;
+}
+.campaign-card:hover {
+  border-color: #91b6ff;
+  box-shadow: 0 16px 32px rgb(16 40 84 / 9%);
+}
+.campaign-card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 14px;
+  margin-bottom: 12px;
+}
+.campaign-badges {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+.category-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 11.5px;
+  font-weight: 700;
+  background: #eff6ff;
+  color: var(--blue);
+  border: 1px solid #bfdbfe;
+}
+.urgent-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 11.5px;
+  font-weight: 700;
+  background: var(--danger-bg);
+  color: var(--danger);
+  border: 1px solid #fecdd3;
+  animation: pulse-urgent 2s infinite ease-in-out;
+}
+@keyframes pulse-urgent {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.8; }
+}
+.disaster-zone-tag {
+  font-size: 12px;
+  color: var(--muted);
+  font-weight: 500;
+}
+.campaign-title {
+  margin: 0 0 6px;
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--ink);
+  letter-spacing: -0.025em;
+}
+.campaign-desc {
+  margin: 0 0 20px;
+  font-size: 14px;
+  color: var(--muted);
+  line-height: 1.5;
+}
+
+/* Progress bar */
+.campaign-progress-wrap {
+  margin-bottom: 18px;
+}
+.campaign-progress-bar {
+  position: relative;
+  height: 10px;
+  background: #e2e8f0;
+  border-radius: 999px;
+  overflow: hidden;
+  display: flex;
+}
+.progress-fill-raised {
+  background: var(--blue);
+  height: 100%;
+  transition: width 400ms ease;
+}
+.progress-fill-disbursed {
+  background: #10b981;
+  height: 100%;
+}
+.campaign-metrics-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+  padding: 14px 16px;
+  background: var(--canvas);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border);
+  margin-bottom: 20px;
+}
+.camp-metric-item {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.camp-metric-label {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--muted);
+  text-transform: uppercase;
+}
+.camp-metric-val {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+}
+.camp-metric-val.highlight-green {
+  color: var(--success);
+}
+.camp-metric-val.highlight-blue {
+  color: var(--blue);
+}
+
+.campaign-card-footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  padding-top: 18px;
+  border-top: 1px solid var(--border);
+}
+.grant-code-badge {
+  font-family: var(--font-geist-mono), Consolas, monospace;
+  font-size: 11.5px;
+  color: #475569;
+  background: #f1f5f9;
+  padding: 5px 10px;
+  border-radius: 6px;
+  border: 1px solid #cbd5e1;
+}
+
+/* Donation Drawer / Modal */
+.donation-box {
+  background: #f8faff;
+  border: 1.5px solid #bfdbfe;
+  border-radius: var(--radius-md);
+  padding: 20px;
+  margin-top: 16px;
+  animation: fadeIn 180ms ease;
+}
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(-4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.donation-chips {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin: 12px 0 16px;
+}
+.donation-chip {
+  padding: 9px 18px;
+  border-radius: 8px;
+  border: 1.5px solid #cbd5e1;
+  background: #ffffff;
+  color: var(--ink);
+  font-weight: 650;
+  font-size: 13.5px;
+  cursor: pointer;
+  transition: all 120ms ease;
+}
+.donation-chip:hover {
+  border-color: var(--blue);
+  color: var(--blue);
+}
+.donation-chip.is-selected {
+  border-color: var(--blue);
+  background: var(--blue);
+  color: #ffffff;
+}
+
+/* Public Transparency Ledger Table */
+.ledger-surface {
+  padding: 28px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-soft);
+}
+.ledger-table-wrap {
+  overflow-x: auto;
+  margin-top: 20px;
+}
+.ledger-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+  text-align: left;
+}
+.ledger-table th {
+  padding: 12px 14px;
+  background: #f1f5f9;
+  color: #334155;
+  font-weight: 700;
+  border-bottom: 2px solid var(--border);
+  white-space: nowrap;
+}
+.ledger-table td {
+  padding: 14px 14px;
+  border-bottom: 1px solid var(--border);
+  color: var(--ink);
+  vertical-align: middle;
+}
+.ledger-table tr:hover td {
+  background: #f8fafc;
+}
+.ledger-hash {
+  font-family: var(--font-geist-mono), Consolas, monospace;
+  font-size: 11px;
+  color: #64748b;
+  max-width: 180px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  display: block;
+}
+
+/* Quick Campaign Selector in Invoice Ready Form */
+.campaign-quick-selector {
+  margin-bottom: 20px;
+  padding: 14px 18px;
+  background: #eff6ff;
+  border: 1.5px solid #93c5fd;
+  border-radius: var(--radius-md);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+.campaign-quick-selector select {
+  flex: 1;
+  min-width: 220px;
+  max-width: 440px;
+  height: 40px;
+  border: 1px solid #93c5fd;
+  border-radius: 6px;
+  padding: 0 12px;
+  font-weight: 600;
+  color: var(--ink);
+  background: #ffffff;
+}
+
+@media (max-width: 768px) {
+  .metric-strip { grid-template-columns: minmax(0, 1fr); gap: 12px; }
+  .campaign-metrics-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .campaign-card-footer { flex-direction: column; align-items: stretch; gap: 10px; }
+  .campaign-quick-selector { flex-direction: column; align-items: stretch; }
+  .campaign-quick-selector select { max-width: 100%; }
+}
+
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { scroll-behavior: auto !important; animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; transition-duration: 0.01ms !important; }
 }

@@ -13,8 +13,8 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Invoice Ready — Evidence before you bill",
-  description: "Review invoice details and source terms before creating a PayPal sandbox invoice.",
+  title: "Relief Ready — Verified Humanitarian Aid & PayPal Invoicing",
+  description: "Transparent NGO relief fund platform with PayPal Donate SDK integration and Invoice Ready preflight disbursement verification.",
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {
