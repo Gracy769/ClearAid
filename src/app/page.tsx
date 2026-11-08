@@ -70,6 +70,7 @@ export default function Home() {
   const [selectedBatchIndex, setSelectedBatchIndex] = useState(0);
   const [batchStatuses, setBatchStatuses] = useState<Record<string, BatchReportStatus>>({});
   const [globalBatchBusy, setGlobalBatchBusy] = useState(false);
+  const [activeStep, setActiveStep] = useState<0 | 1 | 2>(0);
 
   useEffect(() => {
     fetch("/api/status")
@@ -99,6 +100,7 @@ export default function Home() {
     setSelectedBatchIndex(0);
     setBatchStatuses({});
     setGlobalBatchBusy(false);
+    setActiveStep(0);
   }
 
   function updateField(key: keyof ReviewInput, value: string) {
@@ -414,370 +416,565 @@ export default function Home() {
       <nav className="workflow-rail" aria-label="Invoice review progress">
         <ol className="workflow-inner">
           {["Invoice details", "Preflight", "PayPal approval"].map((label, index) => {
-            const complete = index < step;
-            const active = index === step;
-            return <li key={label} className={`workflow-step${active ? " is-active" : ""}${complete ? " is-complete" : ""}`} aria-current={active ? "step" : undefined}>
-              <span className="step-marker">{complete ? <Icon name="check" size={14} /> : <span className="step-dot" />}</span>
-              <span>{label}</span>
-              {index < 2 && <span className="step-connector" aria-hidden="true" />}
-            </li>;
+            const isCompleted = (index === 0 && review !== null) || (index === 1 && (sent || Boolean(invoiceId) || Object.values(batchStatuses).some((s) => s.sent)));
+            const isActive = activeStep === index;
+            const canClick = index === 0 || (index === 1 && review !== null) || (index === 2 && review !== null);
+            return (
+              <li
+                key={label}
+                className={`workflow-step${isActive ? " is-active" : ""}${isCompleted ? " is-complete" : ""}`}
+                aria-current={isActive ? "step" : undefined}
+                style={{ cursor: canClick ? "pointer" : "default" }}
+                onClick={() => {
+                  if (canClick) setActiveStep(index as 0 | 1 | 2);
+                }}
+              >
+                <span className="step-marker">{isCompleted ? <Icon name="check" size={14} /> : <span className="step-dot" />}</span>
+                <span>{label}</span>
+                {index < 2 && <span className="step-connector" aria-hidden="true" />}
+              </li>
+            );
           })}
         </ol>
       </nav>
 
       <div className="workspace" id="main">
         <section className="main-column" aria-labelledby="page-title">
-          <div className="intro">
-            <h1 id="page-title">Make every invoice add up.</h1>
-            <p>Check your invoice against the purchase order, resolve blockers, and send through PayPal only after you approve.</p>
-          </div>
-
-          <form className="surface form-surface" onSubmit={runReview}>
-            <div className="section-heading">
-              <div>
-                <h2>Invoice details</h2>
-                <p>Enter the bill you plan to send. Add a searchable PO or statement of work for source checks.</p>
-              </div>
-              <span className="section-count">Vendor · Buyer · Terms</span>
+          {notice && (
+            <div
+              className={`notice notice-${notice.kind}`}
+              role={notice.kind === "error" ? "alert" : "status"}
+              aria-live="polite"
+              style={{ marginBottom: "20px" }}
+            >
+              <Icon name={notice.kind === "error" ? "alert" : "check"} size={18} />
+              <span>{notice.text}</span>
             </div>
-
-            <div className={`upload-zone${file ? " has-file" : ""}`}>
-              <label className="upload-hit-area" htmlFor="po-file">
-                <span className="upload-icon"><Icon name={file ? "file" : "upload"} size={21} /></span>
-                <span className="upload-copy">
-                  <strong>{file ? file.name : "Add a purchase order or statement of work"}</strong>
-                  <span>{file ? `${file.size < 1024 * 1024 ? `${(file.size / 1024).toFixed(1)} KB` : `${(file.size / 1024 / 1024).toFixed(2)} MB`} · Searchable PDF` : "Drop a searchable PDF here, or browse · up to 8 MB"}</span>
-                </span>
-                <input id="po-file" className="visually-hidden" type="file" accept="application/pdf,.pdf" onChange={(event) => { invalidateReview(); setFile(event.target.files?.[0] || null); }} />
-              </label>
-              {file && <button type="button" className="icon-button file-remove" aria-label="Remove uploaded file" onClick={() => { invalidateReview(); setFile(null); }}><Icon name="close" size={16} /></button>}
-            </div>
-            <p className="privacy-note"><Icon name="shield" size={14} />The original PDF is processed for this review and is not retained.</p>
-
-            {batchReviews.length > 1 && (
-              <div style={{ margin: "16px 0", padding: "14px 16px", background: "var(--canvas)", borderRadius: "10px", border: "1px solid var(--border)" }}>
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "10px" }}>
-                  <strong style={{ fontSize: "14px", color: "var(--ink)" }}>Multi-Invoice Document: Found {batchReviews.length} Reports</strong>
-                  <span style={{ fontSize: "12px", color: "var(--muted)" }}>Click a tab to view report in form</span>
-                </div>
-                <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
-                  {batchReviews.map((rep, idx) => {
-                    const isSelected = idx === selectedBatchIndex;
-                    const st = batchStatuses[rep.id];
-                    const isDismissed = st?.dismissed;
-                    const isSent = st?.sent;
-                    const isReady = rep.review.status === "READY";
-                    return (
-                      <button
-                        key={rep.id}
-                        type="button"
-                        onClick={() => selectReportTab(idx)}
-                        style={{
-                          padding: "8px 14px",
-                          borderRadius: "8px",
-                          border: isSelected ? "2px solid var(--blue)" : "1px solid var(--border)",
-                          background: isSelected ? "var(--blue)" : "#ffffff",
-                          color: isSelected ? "#ffffff" : isDismissed ? "#94a3b8" : "var(--ink)",
-                          textDecoration: isDismissed ? "line-through" : "none",
-                          cursor: "pointer",
-                          fontWeight: isSelected ? "600" : "500",
-                          fontSize: "13px",
-                          display: "inline-flex",
-                          alignItems: "center",
-                          gap: "8px",
-                          transition: "all 140ms ease",
-                        }}
-                      >
-                        <span>{rep.sectionTitle.length > 32 ? `${rep.sectionTitle.slice(0, 32)}…` : rep.sectionTitle}</span>
-                        <span style={{ fontSize: "12px", opacity: isSelected ? 0.9 : 0.7 }}>({formatMoney(rep.review.totalMinor, rep.review.input.currency)})</span>
-                        <span
-                          style={{
-                            fontSize: "10px",
-                            fontWeight: 700,
-                            padding: "2px 6px",
-                            borderRadius: "4px",
-                            background: isSelected
-                              ? "rgba(255,255,255,0.25)"
-                              : isSent
-                              ? "var(--success-bg)"
-                              : isReady
-                              ? "var(--canvas)"
-                              : "var(--danger-bg)",
-                            color: isSelected
-                              ? "#ffffff"
-                              : isSent
-                              ? "var(--success)"
-                              : isReady
-                              ? "var(--blue-deep)"
-                              : "var(--danger)",
-                          }}
-                        >
-                          {isDismissed ? "EXCLUDED" : isSent ? "SENT ✓" : isReady ? "READY" : "HOLD"}
-                        </span>
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-            )}
-
-            <div className="form-divider" />
-
-            <fieldset className="field-group">
-              <legend>Who is billing whom?</legend>
-              <div className="field-grid">
-                <label className="field"><span>Your business</span><input autoComplete="organization" value={data.vendorName} onChange={(event) => updateField("vendorName", event.target.value)} placeholder="Northstar Studio" /></label>
-                <label className="field"><span>Buyer business</span><input value={data.buyerName} onChange={(event) => updateField("buyerName", event.target.value)} placeholder="Buyer company name" /></label>
-                <label className="field field-wide"><span>Buyer email</span><input type="email" autoComplete="email" value={data.buyerEmail} onChange={(event) => updateField("buyerEmail", event.target.value)} placeholder="accounts@buyer.com" /></label>
-              </div>
-            </fieldset>
-
-            <fieldset className="field-group terms-group">
-              <legend>Purchase order terms</legend>
-              <div className="field-grid field-grid-terms">
-                <label className="field"><span>PO number</span><input value={data.poNumber} onChange={(event) => updateField("poNumber", event.target.value)} placeholder="PO-1042" /></label>
-                <label className="field"><span>Invoice currency</span><select value={data.currency} onChange={(event) => updateField("currency", event.target.value)}><option value="USD">USD · US dollar</option><option value="EUR">EUR · Euro</option><option value="GBP">GBP · Pound sterling</option><option value="CAD">CAD · Canadian dollar</option><option value="AUD">AUD · Australian dollar</option><option value="INR">INR · Indian rupee</option></select></label>
-                <label className="field"><span>PO maximum <em>Optional</em></span><div className="input-prefix"><span>{data.currency || "USD"}</span><input inputMode="decimal" value={data.poCap || ""} onChange={(event) => updateField("poCap", event.target.value)} placeholder="0.00" aria-label="PO maximum amount" /></div></label>
-              </div>
-            </fieldset>
-
-            <fieldset className="field-group line-items-group">
-              <legend>What are you billing for?</legend>
-              <div className="line-items-head">
-                <span>Service or deliverable</span>
-                <span>Qty</span>
-                <span>Unit rate</span>
-                <span className="line-action-label">Remove</span>
-              </div>
-              <div className="line-items-list">
-                {data.items.map((item, index) => (
-                  <div className="line-item" key={index}>
-                    <label className="visually-hidden" htmlFor={`item-description-${index}`}>Service or deliverable, line {index + 1}</label>
-                    <input
-                      id={`item-description-${index}`}
-                      value={item.description}
-                      onChange={(event) => updateItem(index, "description", event.target.value)}
-                      placeholder="e.g. Design sprint lead"
-                    />
-                    <label className="visually-hidden" htmlFor={`item-quantity-${index}`}>Quantity, line {index + 1}</label>
-                    <input
-                      id={`item-quantity-${index}`}
-                      type="number"
-                      min="1"
-                      step="1"
-                      inputMode="numeric"
-                      value={item.quantity}
-                      onChange={(event) => updateItem(index, "quantity", event.target.value)}
-                    />
-                    <label className="visually-hidden" htmlFor={`item-rate-${index}`}>Unit rate, line {index + 1}</label>
-                    <div className="rate-input">
-                      <span>{data.currency || "USD"}</span>
-                      <input
-                        id={`item-rate-${index}`}
-                        inputMode="decimal"
-                        value={item.unitAmount}
-                        onChange={(event) => updateItem(index, "unitAmount", event.target.value)}
-                        placeholder="0.00"
-                      />
-                    </div>
-                    <button
-                      type="button"
-                      className="icon-button remove-line"
-                      onClick={() => removeItem(index)}
-                      disabled={data.items.length === 1}
-                      aria-label={`Remove line ${index + 1}`}
-                    >
-                      <Icon name="trash" size={17} />
-                    </button>
-                  </div>
-                ))}
-              </div>
-              <button type="button" className="add-line" onClick={addItem}>
-                <Icon name="plus" size={16} />Add a line item
-              </button>
-              <div className="invoice-total">
-                <span>Invoice total</span>
-                <strong>{formatMoney(previewMinor, data.currency)}</strong>
-              </div>
-            </fieldset>
-
-            {aiUsed && <div className="suggestion-banner"><span className="suggestion-icon"><Icon name="spark" size={17} /></span><p><strong>AI suggestions added.</strong> Verify the business names, PO number, and terms against the source evidence before approval.</p></div>}
-
-            <div className="form-footer">
-              <span className="footer-note">You review each field before any PayPal action.</span>
-              <button className="button-primary" type="submit" disabled={busy}>
-                {busy ? <><span className="spinner" />Checking invoice</> : <>Run preflight <Icon name="arrow" size={17} /></>}
-              </button>
-            </div>
-          </form>
-
-          {notice && <div className={`notice notice-${notice.kind}`} role={notice.kind === "error" ? "alert" : "status"} aria-live="polite"><Icon name={notice.kind === "error" ? "alert" : "check"} size={18} /><span>{notice.text}</span></div>}
-
-          {review && <section className="surface result-surface" aria-labelledby="result-title">
-            <div className="result-topline">
-              <div><h2 id="result-title">Preflight result</h2><p>{review.findings.length ? "Review the findings before creating a draft." : "No deterministic blockers found. Confirm the details before approval."}</p></div>
-              <span className={`status-badge status-${review.status.toLowerCase()}`}><span className="status-icon"><Icon name={review.status === "READY" ? "check" : "alert"} size={14} /></span>{review.status}</span>
-            </div>
-
-            <div className="total-callout"><span>Invoice total</span><strong>{formatMoney(review.totalMinor, review.input.currency)}</strong><span className="total-currency">{review.input.currency}</span></div>
-
-            {review.findings.length > 0 && <ul className="findings-list">{review.findings.map((finding, index) => <li key={`${finding.code}-${index}`} className={`finding finding-${finding.severity}`}>
-              <Icon name={finding.severity === "block" ? "alert" : "file"} size={18} />
-              <div><strong>{finding.severity === "block" ? "Hold" : "Review"}</strong><p>{finding.message}</p></div>
-            </li>)}</ul>}
-
-            {/* ONLY show single approval row if NOT multi-report */}
-            {review.status === "READY" && batchReviews.length <= 1 && (
-              <div className="approval-row">
-                <div>
-                  <strong>Ready for your approval</strong>
-                  <span>{paypalConfigured === true ? "Creating a draft does not send it." : paypalConfigured === false ? "Add PayPal sandbox credentials to enable invoice actions." : "Checking PayPal sandbox connection…"}</span>
-                </div>
-                <button type="button" className="button-primary" onClick={createDraft} disabled={busy || !approvalToken || paypalConfigured !== true}>
-                  {busy ? <><span className="spinner" />Working</> : <>Approve &amp; create draft <Icon name="arrow" size={17} /></>}
-                </button>
-              </div>
-            )}
-          </section>}
-
-          {/* Single invoice draft view (only when single report) */}
-          {batchReviews.length <= 1 && invoiceId && (
-            <section className={`surface draft-surface${sent ? " is-sent" : ""}`} aria-labelledby="draft-title">
-              <div className="draft-heading"><span className="draft-icon"><Icon name={sent ? "check" : "file"} size={20} /></span><div><h2 id="draft-title">{sent ? "Invoice sent" : "Sandbox draft created"}</h2><p>{sent ? "PayPal accepted the send request." : "Approve sending to issue the invoice to the buyer."}</p></div></div>
-              <div className="draft-reference"><span>PayPal invoice ID</span><code>{invoiceId}</code></div>
-              <div className="draft-actions">{sent && invoiceUrl && <a className="button-secondary" href={invoiceUrl} target="_blank" rel="noreferrer">Open hosted invoice <Icon name="arrow" size={16} /></a>}{!sent && <button type="button" className="button-primary" onClick={sendInvoice} disabled={busy || !sendToken}>{busy ? <><span className="spinner" />Sending</> : <>Approve &amp; send invoice <Icon name="arrow" size={17} /></>}</button>}</div>
-            </section>
           )}
-
-          {/* MULTI-INVOICE APPROVALS & BATCH CARDS (Rendered when multi-report detected) */}
-          {batchReviews.length > 1 && (
-            <section className="surface draft-surface" style={{ marginTop: "24px" }} aria-labelledby="batch-heading">
-              <div className="draft-heading">
-                <span className="draft-icon"><Icon name={activePendingCount === 0 ? "check" : "file"} size={20} /></span>
-                <div>
-                  <h2 id="batch-heading">Multi-Invoice Reports ({activeBatchReviews.length})</h2>
-                  <p>{activePendingCount === 0 ? "All detected invoices have been sent through PayPal Sandbox." : "Review each report. Approve individually with the side button, dismiss with ✕, or approve all at once below."}</p>
-                </div>
+          {/* STEP 0: INVOICE DETAILS FORM */}
+          {activeStep === 0 && (
+            <>
+              <div className="intro">
+                <h1 id="page-title">Make every invoice add up.</h1>
+                <p>Check your invoice against the purchase order, resolve blockers, and send through PayPal only after you approve.</p>
               </div>
 
-              <div style={{ display: "flex", flexDirection: "column", gap: "10px", marginTop: "16px" }}>
-                {activeBatchReviews.map((rep) => {
-                  const st = batchStatuses[rep.id] || { sent: false, dismissed: false, busy: false };
-                  const isReady = rep.review.status === "READY";
-                  return (
-                    <div
-                      key={rep.id}
-                      style={{
-                        display: "flex",
-                        justifyContent: "space-between",
-                        alignItems: "center",
-                        padding: "14px 16px",
-                        background: st.sent ? "rgba(16, 185, 129, 0.04)" : "#ffffff",
-                        border: st.sent ? "1px solid rgba(16, 185, 129, 0.3)" : "1px solid #cbd5e1",
-                        borderRadius: "8px",
-                        gap: "14px",
-                      }}
-                    >
-                      {/* Left: Report info */}
-                      <div style={{ flex: 1, minWidth: 0 }}>
-                        <div style={{ display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap", marginBottom: "4px" }}>
-                          <strong style={{ fontSize: "14px", color: "#0f172a" }}>{rep.sectionTitle}</strong>
-                          <span
+              <form className="surface form-surface" onSubmit={runReview}>
+                <div className="section-heading">
+                  <div>
+                    <h2>Invoice details</h2>
+                    <p>Enter the bill you plan to send. Add a searchable PO or statement of work for source checks.</p>
+                  </div>
+                  <span className="section-count">Vendor · Buyer · Terms</span>
+                </div>
+
+                <div className={`upload-zone${file ? " has-file" : ""}`}>
+                  <label className="upload-hit-area" htmlFor="po-file">
+                    <span className="upload-icon"><Icon name={file ? "file" : "upload"} size={21} /></span>
+                    <span className="upload-copy">
+                      <strong>{file ? file.name : "Add a purchase order or statement of work"}</strong>
+                      <span>{file ? `${file.size < 1024 * 1024 ? `${(file.size / 1024).toFixed(1)} KB` : `${(file.size / 1024 / 1024).toFixed(2)} MB`} · Searchable PDF` : "Drop a searchable PDF here, or browse · up to 8 MB"}</span>
+                    </span>
+                    <input id="po-file" className="visually-hidden" type="file" accept="application/pdf,.pdf" onChange={(event) => { invalidateReview(); setFile(event.target.files?.[0] || null); }} />
+                  </label>
+                  {file && <button type="button" className="icon-button file-remove" aria-label="Remove uploaded file" onClick={() => { invalidateReview(); setFile(null); }}><Icon name="close" size={16} /></button>}
+                </div>
+                <p className="privacy-note"><Icon name="shield" size={14} />The original PDF is processed for this review and is not retained.</p>
+
+                {batchReviews.length > 1 && (
+                  <div style={{ margin: "16px 0", padding: "14px 16px", background: "var(--canvas)", borderRadius: "10px", border: "1px solid var(--border)" }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "10px" }}>
+                      <strong style={{ fontSize: "14px", color: "var(--ink)" }}>Multi-Invoice Document: Found {batchReviews.length} Reports</strong>
+                      <span style={{ fontSize: "12px", color: "var(--muted)" }}>Click a tab to view report in form</span>
+                    </div>
+                    <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
+                      {batchReviews.map((rep, idx) => {
+                        const isSelected = idx === selectedBatchIndex;
+                        const st = batchStatuses[rep.id];
+                        const isDismissed = st?.dismissed;
+                        const isSent = st?.sent;
+                        const isReady = rep.review.status === "READY";
+                        return (
+                          <button
+                            key={rep.id}
+                            type="button"
+                            onClick={() => selectReportTab(idx)}
                             style={{
-                              fontSize: "11px",
-                              fontWeight: 600,
-                              padding: "2px 6px",
-                              borderRadius: "4px",
-                              background: st.sent ? "rgba(16, 185, 129, 0.15)" : isReady ? "rgba(2, 132, 199, 0.12)" : "rgba(239, 68, 68, 0.12)",
-                              color: st.sent ? "#059669" : isReady ? "#0284c7" : "#dc2626",
+                              padding: "8px 14px",
+                              borderRadius: "8px",
+                              border: isSelected ? "2px solid var(--blue)" : "1px solid var(--border)",
+                              background: isSelected ? "var(--blue)" : "#ffffff",
+                              color: isSelected ? "#ffffff" : isDismissed ? "#94a3b8" : "var(--ink)",
+                              textDecoration: isDismissed ? "line-through" : "none",
+                              cursor: "pointer",
+                              fontWeight: isSelected ? "600" : "500",
+                              fontSize: "13px",
+                              display: "inline-flex",
+                              alignItems: "center",
+                              gap: "8px",
+                              transition: "all 140ms ease",
                             }}
                           >
-                            {st.sent ? "SENT ✓" : isReady ? "READY" : "HOLD"}
-                          </span>
-                        </div>
-                        <div style={{ fontSize: "13px", color: "#475569", display: "flex", gap: "10px", flexWrap: "wrap" }}>
-                          <span>PO: <code>{rep.review.input.poNumber}</code></span>
-                          <span>•</span>
-                          <strong>{formatMoney(rep.review.totalMinor, rep.review.input.currency)}</strong>
-                          {st.invoiceId && (
-                            <>
-                              <span>•</span>
-                              <span><code>{st.invoiceId}</code></span>
-                            </>
-                          )}
-                        </div>
-                        {st.error && (
-                          <div style={{ marginTop: "4px", fontSize: "12px", color: "#dc2626" }}>
-                            {st.error}
-                          </div>
-                        )}
-                      </div>
+                            <span>{rep.sectionTitle.length > 32 ? `${rep.sectionTitle.slice(0, 32)}…` : rep.sectionTitle}</span>
+                            <span style={{ fontSize: "12px", opacity: isSelected ? 0.9 : 0.7 }}>({formatMoney(rep.review.totalMinor, rep.review.input.currency)})</span>
+                            <span
+                              style={{
+                                fontSize: "10px",
+                                fontWeight: 700,
+                                padding: "2px 6px",
+                                borderRadius: "4px",
+                                background: isSelected
+                                  ? "rgba(255,255,255,0.25)"
+                                  : isSent
+                                  ? "var(--success-bg)"
+                                  : isReady
+                                  ? "var(--canvas)"
+                                  : "var(--danger-bg)",
+                                color: isSelected
+                                  ? "#ffffff"
+                                  : isSent
+                                  ? "var(--success)"
+                                  : isReady
+                                  ? "var(--blue-deep)"
+                                  : "var(--danger)",
+                              }}
+                            >
+                              {isDismissed ? "EXCLUDED" : isSent ? "SENT ✓" : isReady ? "READY" : "HOLD"}
+                            </span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
 
-                      {/* Right: Actions */}
-                      <div style={{ display: "flex", alignItems: "center", gap: "8px", flexShrink: 0 }}>
-                        {st.sent && st.url ? (
-                          <a
-                            className="button-secondary"
-                            href={st.url}
-                            target="_blank"
-                            rel="noreferrer"
-                            style={{ display: "inline-flex", alignItems: "center", gap: "6px", fontSize: "13px", padding: "8px 12px" }}
+                <div className="form-divider" />
+
+                <fieldset className="field-group">
+                  <legend>Who is billing whom?</legend>
+                  <div className="field-grid">
+                    <label className="field"><span>Your business</span><input autoComplete="organization" value={data.vendorName} onChange={(event) => updateField("vendorName", event.target.value)} placeholder="Northstar Studio" /></label>
+                    <label className="field"><span>Buyer business</span><input value={data.buyerName} onChange={(event) => updateField("buyerName", event.target.value)} placeholder="Buyer company name" /></label>
+                    <label className="field field-wide"><span>Buyer email</span><input type="email" autoComplete="email" value={data.buyerEmail} onChange={(event) => updateField("buyerEmail", event.target.value)} placeholder="accounts@buyer.com" /></label>
+                  </div>
+                </fieldset>
+
+                <fieldset className="field-group terms-group">
+                  <legend>Purchase order terms</legend>
+                  <div className="field-grid field-grid-terms">
+                    <label className="field"><span>PO number</span><input value={data.poNumber} onChange={(event) => updateField("poNumber", event.target.value)} placeholder="PO-1042" /></label>
+                    <label className="field"><span>Invoice currency</span><select value={data.currency} onChange={(event) => updateField("currency", event.target.value)}><option value="USD">USD · US dollar</option><option value="EUR">EUR · Euro</option><option value="GBP">GBP · Pound sterling</option><option value="CAD">CAD · Canadian dollar</option><option value="AUD">AUD · Australian dollar</option><option value="INR">INR · Indian rupee</option></select></label>
+                    <label className="field"><span>PO maximum <em>Optional</em></span><div className="input-prefix"><span>{data.currency || "USD"}</span><input inputMode="decimal" value={data.poCap || ""} onChange={(event) => updateField("poCap", event.target.value)} placeholder="0.00" aria-label="PO maximum amount" /></div></label>
+                  </div>
+                </fieldset>
+
+                <fieldset className="field-group line-items-group">
+                  <legend>What are you billing for?</legend>
+                  <div className="line-items-head">
+                    <span>Service or deliverable</span>
+                    <span>Qty</span>
+                    <span>Unit rate</span>
+                    <span className="line-action-label">Remove</span>
+                  </div>
+                  <div className="line-items-list">
+                    {data.items.map((item, index) => (
+                      <div className="line-item" key={index}>
+                        <label className="visually-hidden" htmlFor={`item-description-${index}`}>Service or deliverable, line {index + 1}</label>
+                        <input
+                          id={`item-description-${index}`}
+                          value={item.description}
+                          onChange={(event) => updateItem(index, "description", event.target.value)}
+                          placeholder="e.g. Design sprint lead"
+                        />
+                        <label className="visually-hidden" htmlFor={`item-quantity-${index}`}>Quantity, line {index + 1}</label>
+                        <input
+                          id={`item-quantity-${index}`}
+                          type="number"
+                          min="1"
+                          step="1"
+                          inputMode="numeric"
+                          value={item.quantity}
+                          onChange={(event) => updateItem(index, "quantity", event.target.value)}
+                        />
+                        <label className="visually-hidden" htmlFor={`item-rate-${index}`}>Unit rate, line {index + 1}</label>
+                        <div className="rate-input">
+                          <span>{data.currency || "USD"}</span>
+                          <input
+                            id={`item-rate-${index}`}
+                            inputMode="decimal"
+                            value={item.unitAmount}
+                            onChange={(event) => updateItem(index, "unitAmount", event.target.value)}
+                            placeholder="0.00"
+                          />
+                        </div>
+                        <button
+                          type="button"
+                          className="icon-button remove-line"
+                          onClick={() => removeItem(index)}
+                          disabled={data.items.length === 1}
+                          aria-label={`Remove line ${index + 1}`}
+                        >
+                          <Icon name="trash" size={17} />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                  <button type="button" className="add-line" onClick={addItem}>
+                    <Icon name="plus" size={16} />Add a line item
+                  </button>
+                  <div className="invoice-total">
+                    <span>Invoice total</span>
+                    <strong>{formatMoney(previewMinor, data.currency)}</strong>
+                  </div>
+                </fieldset>
+
+                {aiUsed && <div className="suggestion-banner"><span className="suggestion-icon"><Icon name="spark" size={17} /></span><p><strong>AI suggestions added.</strong> Verify the business names, PO number, and terms against the source evidence before approval.</p></div>}
+
+                <div className="form-footer">
+                  <span className="footer-note">You review each field before any PayPal action.</span>
+                  {review ? (
+                    <div style={{ display: "flex", gap: "10px", alignItems: "center" }}>
+                      <button
+                        type="submit"
+                        className="button-secondary"
+                        disabled={busy}
+                        style={{ minHeight: "48px", padding: "0 14px", fontSize: "13px" }}
+                        title="Re-run check against source"
+                      >
+                        {busy ? <span className="spinner" /> : "Re-run"}
+                      </button>
+                      <button
+                        type="button"
+                        className="button-primary"
+                        onClick={() => setActiveStep(1)}
+                      >
+                        Next <Icon name="arrow" size={17} />
+                      </button>
+                    </div>
+                  ) : (
+                    <button className="button-primary" type="submit" disabled={busy}>
+                      {busy ? <><span className="spinner" />Checking invoice</> : <>Run preflight <Icon name="arrow" size={17} /></>}
+                    </button>
+                  )}
+                </div>
+              </form>
+            </>
+          )}
+
+          {/* STEP 1: PREFLIGHT RESULT PAGE */}
+          {activeStep === 1 && review && (
+            <div style={{ display: "flex", flexDirection: "column", gap: "20px" }}>
+              <div className="intro">
+                <h1 id="page-title">Preflight verification.</h1>
+                <p>Deterministic checks and policy reconciliation findings before any PayPal draft action.</p>
+              </div>
+
+              {batchReviews.length > 1 && (
+                <div style={{ padding: "14px 16px", background: "var(--canvas)", borderRadius: "10px", border: "1px solid var(--border)" }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "10px" }}>
+                    <strong style={{ fontSize: "14px", color: "var(--ink)" }}>Multi-Invoice Reports ({batchReviews.length})</strong>
+                    <span style={{ fontSize: "12px", color: "var(--muted)" }}>Click a tab to view findings for that report</span>
+                  </div>
+                  <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
+                    {batchReviews.map((rep, idx) => {
+                      const isSelected = idx === selectedBatchIndex;
+                      const st = batchStatuses[rep.id];
+                      const isDismissed = st?.dismissed;
+                      const isSent = st?.sent;
+                      const isReady = rep.review.status === "READY";
+                      return (
+                        <button
+                          key={rep.id}
+                          type="button"
+                          onClick={() => selectReportTab(idx)}
+                          style={{
+                            padding: "8px 14px",
+                            borderRadius: "8px",
+                            border: isSelected ? "2px solid var(--blue)" : "1px solid var(--border)",
+                            background: isSelected ? "var(--blue)" : "#ffffff",
+                            color: isSelected ? "#ffffff" : isDismissed ? "#94a3b8" : "var(--ink)",
+                            textDecoration: isDismissed ? "line-through" : "none",
+                            cursor: "pointer",
+                            fontWeight: isSelected ? "600" : "500",
+                            fontSize: "13px",
+                            display: "inline-flex",
+                            alignItems: "center",
+                            gap: "8px",
+                            transition: "all 140ms ease",
+                          }}
+                        >
+                          <span>{rep.sectionTitle.length > 30 ? `${rep.sectionTitle.slice(0, 30)}…` : rep.sectionTitle}</span>
+                          <span style={{ fontSize: "12px", opacity: isSelected ? 0.9 : 0.7 }}>({formatMoney(rep.review.totalMinor, rep.review.input.currency)})</span>
+                          <span
+                            style={{
+                              fontSize: "10px",
+                              fontWeight: 700,
+                              padding: "2px 6px",
+                              borderRadius: "4px",
+                              background: isSelected
+                                ? "rgba(255,255,255,0.25)"
+                                : isSent
+                                ? "var(--success-bg)"
+                                : isReady
+                                ? "var(--canvas)"
+                                : "var(--danger-bg)",
+                              color: isSelected
+                                ? "#ffffff"
+                                : isSent
+                                ? "var(--success)"
+                                : isReady
+                                ? "var(--blue-deep)"
+                                : "var(--danger)",
+                            }}
                           >
-                            Open hosted invoice <Icon name="arrow" size={14} />
+                            {isDismissed ? "EXCLUDED" : isSent ? "SENT ✓" : isReady ? "READY" : "HOLD"}
+                          </span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
+              <section className="surface result-surface" style={{ marginTop: 0 }} aria-labelledby="result-title">
+                <div className="result-topline">
+                  <div><h2 id="result-title">Preflight result</h2><p>{review.findings.length ? "Review the findings before creating a draft." : "No deterministic blockers found. Confirm the details before approval."}</p></div>
+                  <span className={`status-badge status-${review.status.toLowerCase()}`}><span className="status-icon"><Icon name={review.status === "READY" ? "check" : "alert"} size={14} /></span>{review.status}</span>
+                </div>
+
+                <div className="total-callout"><span>Invoice total</span><strong>{formatMoney(review.totalMinor, review.input.currency)}</strong><span className="total-currency">{review.input.currency}</span></div>
+
+                {review.findings.length > 0 && <ul className="findings-list">{review.findings.map((finding, index) => <li key={`${finding.code}-${index}`} className={`finding finding-${finding.severity}`}>
+                  <Icon name={finding.severity === "block" ? "alert" : "file"} size={18} />
+                  <div><strong>{finding.severity === "block" ? "Hold" : "Review"}</strong><p>{finding.message}</p></div>
+                </li>)}</ul>}
+
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: "24px", paddingTop: "20px", borderTop: "1px solid var(--border)" }}>
+                  <button type="button" className="button-secondary" onClick={() => setActiveStep(0)}>
+                    ← Back to details
+                  </button>
+                  <button type="button" className="button-primary" onClick={() => setActiveStep(2)}>
+                    Next <Icon name="arrow" size={17} />
+                  </button>
+                </div>
+              </section>
+            </div>
+          )}
+
+          {/* STEP 2: PAYPAL APPROVAL PAGE */}
+          {activeStep === 2 && review && (
+            <div style={{ display: "flex", flexDirection: "column", gap: "20px" }}>
+              <div className="intro">
+                <h1 id="page-title">PayPal approval.</h1>
+                <p>Authorize draft creation and issue invoices directly through PayPal Sandbox.</p>
+              </div>
+
+              {/* Single invoice draft view (only when single report) */}
+              {batchReviews.length <= 1 && (
+                <section className="surface form-surface">
+                  <div className="section-heading">
+                    <div>
+                      <h2>{invoiceId ? (sent ? "Invoice sent" : "Sandbox draft created") : "Approval ready"}</h2>
+                      <p>{sent ? "PayPal accepted the send request." : invoiceId ? "Review the hosted invoice, then approve sending separately." : "Review invoice amount before draft creation."}</p>
+                    </div>
+                    <span className="section-count">{review.input.currency}</span>
+                  </div>
+
+                  <div className="total-callout" style={{ marginTop: 0, marginBottom: "20px" }}>
+                    <span>Invoice total</span>
+                    <strong>{formatMoney(review.totalMinor, review.input.currency)}</strong>
+                    <span className="total-currency">{review.input.currency}</span>
+                  </div>
+
+                  {!invoiceId && (
+                    <div className="approval-row" style={{ marginTop: "16px", paddingTop: "16px" }}>
+                      <div>
+                        <strong>Ready for your approval</strong>
+                        <span>{paypalConfigured === true ? "Creating a draft does not send it." : paypalConfigured === false ? "Add PayPal sandbox credentials to enable invoice actions." : "Checking PayPal sandbox connection…"}</span>
+                      </div>
+                      <button type="button" className="button-primary" onClick={createDraft} disabled={busy || !approvalToken || paypalConfigured !== true}>
+                        {busy ? <><span className="spinner" />Working</> : <>Approve &amp; create draft <Icon name="arrow" size={17} /></>}
+                      </button>
+                    </div>
+                  )}
+
+                  {invoiceId && (
+                    <div className={`surface draft-surface${sent ? " is-sent" : ""}`} style={{ marginTop: 0 }} aria-labelledby="draft-title">
+                      <div className="draft-heading">
+                        <span className="draft-icon"><Icon name={sent ? "check" : "file"} size={20} /></span>
+                        <div>
+                          <h2 id="draft-title">{sent ? "Invoice sent" : "Sandbox draft created"}</h2>
+                          <p>{sent ? "PayPal accepted the send request." : "Approve sending to issue the invoice to the buyer."}</p>
+                        </div>
+                      </div>
+                      <div className="draft-reference"><span>PayPal invoice ID</span><code>{invoiceId}</code></div>
+                      <div className="draft-actions">
+                        {sent && invoiceUrl && (
+                          <a className="button-secondary" href={invoiceUrl} target="_blank" rel="noreferrer">
+                            Open hosted invoice <Icon name="arrow" size={16} />
                           </a>
-                        ) : (
-                          <>
-                            <button
-                              type="button"
-                              className="button-primary"
-                              disabled={st.busy || globalBatchBusy || !isReady || paypalConfigured !== true}
-                              onClick={() => handleApproveSingle(rep)}
-                              style={{ fontSize: "12px", padding: "7px 12px", display: "inline-flex", alignItems: "center", gap: "4px" }}
-                            >
-                              {st.busy ? (
-                                <><span className="spinner" />Sending...</>
-                              ) : (
-                                <>Approve <Icon name="check" size={13} /></>
-                              )}
-                            </button>
-                            <button
-                              type="button"
-                              className="icon-button"
-                              disabled={st.busy || globalBatchBusy}
-                              onClick={() => handleDismissSingle(rep.id)}
-                              title="Don't approve this invoice"
-                              aria-label="Don't approve this invoice"
-                              style={{ border: "1px solid #cbd5e1", borderRadius: "6px", width: "32px", height: "32px", display: "inline-flex", alignItems: "center", justifyContent: "center", color: "#64748b" }}
-                            >
-                              <Icon name="close" size={14} />
-                            </button>
-                          </>
+                        )}
+                        {!sent && (
+                          <button type="button" className="button-primary" onClick={sendInvoice} disabled={busy || !sendToken}>
+                            {busy ? <><span className="spinner" />Sending</> : <>Approve &amp; send invoice <Icon name="arrow" size={17} /></>}
+                          </button>
                         )}
                       </div>
                     </div>
-                  );
-                })}
-              </div>
-
-              {/* Big prominent button at bottom to approve all at the same time */}
-              {activePendingCount > 0 && (
-                <div style={{ marginTop: "20px", display: "flex", justifyContent: "center" }}>
-                  <button
-                    type="button"
-                    className="button-primary"
-                    onClick={handleApproveAll}
-                    disabled={globalBatchBusy || paypalConfigured !== true}
-                    style={{ width: "100%", padding: "14px 20px", fontSize: "15px", fontWeight: 600, display: "flex", justifyContent: "center", alignItems: "center", gap: "8px" }}
-                  >
-                    {globalBatchBusy ? (
-                      <><span className="spinner" />Approving &amp; sending {activePendingCount} invoices in PayPal...</>
-                    ) : (
-                      <>Approve all ({activePendingCount}) invoices at the same time <Icon name="arrow" size={17} /></>
-                    )}
-                  </button>
-                </div>
+                  )}
+                </section>
               )}
-            </section>
+
+              {/* MULTI-INVOICE APPROVALS & BATCH CARDS (Rendered when multi-report detected) */}
+              {batchReviews.length > 1 && (
+                <section className="surface draft-surface" style={{ marginTop: 0 }} aria-labelledby="batch-heading">
+                  <div className="draft-heading">
+                    <span className="draft-icon"><Icon name={activePendingCount === 0 ? "check" : "file"} size={20} /></span>
+                    <div>
+                      <h2 id="batch-heading">Multi-Invoice Reports ({activeBatchReviews.length})</h2>
+                      <p>{activePendingCount === 0 ? "All detected invoices have been sent through PayPal Sandbox." : "Review each report. Approve individually with the side button, dismiss with ✕, or approve all at once below."}</p>
+                    </div>
+                  </div>
+
+                  <div style={{ display: "flex", flexDirection: "column", gap: "10px", marginTop: "16px" }}>
+                    {activeBatchReviews.map((rep) => {
+                      const st = batchStatuses[rep.id] || { sent: false, dismissed: false, busy: false };
+                      const isReady = rep.review.status === "READY";
+                      return (
+                        <div
+                          key={rep.id}
+                          style={{
+                            display: "flex",
+                            justifyContent: "space-between",
+                            alignItems: "center",
+                            padding: "14px 16px",
+                            background: st.sent ? "rgba(16, 185, 129, 0.04)" : "#ffffff",
+                            border: st.sent ? "1px solid rgba(16, 185, 129, 0.3)" : "1px solid #cbd5e1",
+                            borderRadius: "8px",
+                            gap: "14px",
+                          }}
+                        >
+                          {/* Left: Report info */}
+                          <div style={{ flex: 1, minWidth: 0 }}>
+                            <div style={{ display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap", marginBottom: "4px" }}>
+                              <strong style={{ fontSize: "14px", color: "#0f172a" }}>{rep.sectionTitle}</strong>
+                              <span
+                                style={{
+                                  fontSize: "11px",
+                                  fontWeight: 600,
+                                  padding: "2px 6px",
+                                  borderRadius: "4px",
+                                  background: st.sent ? "rgba(16, 185, 129, 0.15)" : isReady ? "rgba(2, 132, 199, 0.12)" : "rgba(239, 68, 68, 0.12)",
+                                  color: st.sent ? "#059669" : isReady ? "#0284c7" : "#dc2626",
+                                }}
+                              >
+                                {st.sent ? "SENT ✓" : isReady ? "READY" : "HOLD"}
+                              </span>
+                            </div>
+                            <div style={{ fontSize: "13px", color: "#475569", display: "flex", gap: "10px", flexWrap: "wrap" }}>
+                              <span>PO: <code>{rep.review.input.poNumber}</code></span>
+                              <span>•</span>
+                              <strong>{formatMoney(rep.review.totalMinor, rep.review.input.currency)}</strong>
+                              {st.invoiceId && (
+                                <>
+                                  <span>•</span>
+                                  <span><code>{st.invoiceId}</code></span>
+                                </>
+                              )}
+                            </div>
+                            {st.error && (
+                              <div style={{ marginTop: "4px", fontSize: "12px", color: "#dc2626" }}>
+                                {st.error}
+                              </div>
+                            )}
+                          </div>
+
+                          {/* Right: Actions */}
+                          <div style={{ display: "flex", alignItems: "center", gap: "8px", flexShrink: 0 }}>
+                            {st.sent && st.url ? (
+                              <a
+                                className="button-secondary"
+                                href={st.url}
+                                target="_blank"
+                                rel="noreferrer"
+                                style={{ display: "inline-flex", alignItems: "center", gap: "6px", fontSize: "13px", padding: "8px 12px" }}
+                              >
+                                Open hosted invoice <Icon name="arrow" size={14} />
+                              </a>
+                            ) : (
+                              <>
+                                <button
+                                  type="button"
+                                  className="button-primary"
+                                  disabled={st.busy || globalBatchBusy || !isReady || paypalConfigured !== true}
+                                  onClick={() => handleApproveSingle(rep)}
+                                  style={{ fontSize: "12px", padding: "7px 12px", display: "inline-flex", alignItems: "center", gap: "4px" }}
+                                >
+                                  {st.busy ? (
+                                    <><span className="spinner" />Sending...</>
+                                  ) : (
+                                    <>Approve <Icon name="check" size={13} /></>
+                                  )}
+                                </button>
+                                <button
+                                  type="button"
+                                  className="icon-button"
+                                  disabled={st.busy || globalBatchBusy}
+                                  onClick={() => handleDismissSingle(rep.id)}
+                                  title="Don't approve this invoice"
+                                  aria-label="Don't approve this invoice"
+                                  style={{ border: "1px solid #cbd5e1", borderRadius: "6px", width: "32px", height: "32px", display: "inline-flex", alignItems: "center", justifyContent: "center", color: "#64748b" }}
+                                >
+                                  <Icon name="close" size={14} />
+                                </button>
+                              </>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+
+                  {/* Big prominent button at bottom to approve all at the same time */}
+                  {activePendingCount > 0 && (
+                    <div style={{ marginTop: "20px", display: "flex", justifyContent: "center" }}>
+                      <button
+                        type="button"
+                        className="button-primary"
+                        onClick={handleApproveAll}
+                        disabled={globalBatchBusy || paypalConfigured !== true}
+                        style={{ width: "100%", padding: "14px 20px", fontSize: "15px", fontWeight: 600, display: "flex", justifyContent: "center", alignItems: "center", gap: "8px" }}
+                      >
+                        {globalBatchBusy ? (
+                          <><span className="spinner" />Approving &amp; sending {activePendingCount} invoices in PayPal...</>
+                        ) : (
+                          <>Approve all ({activePendingCount}) invoices at the same time <Icon name="arrow" size={17} /></>
+                        )}
+                      </button>
+                    </div>
+                  )}
+                </section>
+              )}
+
+              <div style={{ marginTop: "10px" }}>
+                <button
+                  type="button"
+                  className="button-secondary"
+                  onClick={() => setActiveStep(1)}
+                >
+                  ← Back to preflight result
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* FALLBACK IF USER JUMPS TO STEP 1 OR 2 WITHOUT REVIEW */}
+          {activeStep > 0 && !review && (
+            <div className="surface form-surface" style={{ textAlign: "center", padding: "40px 20px" }}>
+              <h2>No preflight review found</h2>
+              <p style={{ margin: "12px 0 20px", color: "var(--muted)" }}>Please complete the invoice details and run preflight first.</p>
+              <button type="button" className="button-primary" onClick={() => setActiveStep(0)}>← Go to invoice details</button>
+            </div>
           )}
         </section>
 
