@@ -41,6 +41,15 @@ function formatMoney(minor: number, currency: string) {
   }
 }
 
+interface BatchReportStatus {
+  invoiceId?: string;
+  url?: string;
+  sent: boolean;
+  dismissed: boolean;
+  busy: boolean;
+  error?: string;
+}
+
 export default function Home() {
   const [data, setData] = useState<ReviewInput>(empty);
   const [file, setFile] = useState<File | null>(null);
@@ -59,7 +68,8 @@ export default function Home() {
   // Multi-invoice batch state
   const [batchReviews, setBatchReviews] = useState<BatchReportReview[]>([]);
   const [selectedBatchIndex, setSelectedBatchIndex] = useState(0);
-  const [batchInvoices, setBatchInvoices] = useState<Record<string, { id: string; url: string; sent: boolean }>>({});
+  const [batchStatuses, setBatchStatuses] = useState<Record<string, BatchReportStatus>>({});
+  const [globalBatchBusy, setGlobalBatchBusy] = useState(false);
 
   useEffect(() => {
     fetch("/api/status")
@@ -87,7 +97,8 @@ export default function Home() {
     setSent(false);
     setBatchReviews([]);
     setSelectedBatchIndex(0);
-    setBatchInvoices({});
+    setBatchStatuses({});
+    setGlobalBatchBusy(false);
   }
 
   function updateField(key: keyof ReviewInput, value: string) {
@@ -115,6 +126,11 @@ export default function Home() {
 
       if (body.isMulti && Array.isArray(body.reviews) && body.reviews.length > 1) {
         setBatchReviews(body.reviews);
+        const initialMap: Record<string, BatchReportStatus> = {};
+        body.reviews.forEach((r: BatchReportReview) => {
+          initialMap[r.id] = { sent: false, dismissed: false, busy: false };
+        });
+        setBatchStatuses(initialMap);
         setSelectedBatchIndex(0);
         const first = body.reviews[0];
         setData(first.review.input);
@@ -123,11 +139,12 @@ export default function Home() {
         setApprovalToken(first.approvalToken);
         setNotice({
           kind: "success",
-          text: `Multi-invoice document detected: ${body.reviews.length} separate reports found. Switch tabs to inspect and approve each invoice.`,
+          text: `Multi-invoice document detected: ${body.reviews.length} separate reports found. Review each report below and approve individually or all at once.`,
         });
       } else {
         setBatchReviews([]);
         setSelectedBatchIndex(0);
+        setBatchStatuses({});
         setData(body.review.input);
         setReview(body.review);
         setReviewId(body.reviewId);
@@ -152,11 +169,11 @@ export default function Home() {
     setReview(selected.review);
     setReviewId(selected.id);
     setApprovalToken(selected.approvalToken);
-    const created = batchInvoices[selected.id];
-    if (created) {
-      setInvoiceId(created.id);
-      setInvoiceUrl(created.url);
-      setSent(created.sent);
+    const st = batchStatuses[selected.id];
+    if (st && st.invoiceId) {
+      setInvoiceId(st.invoiceId);
+      setInvoiceUrl(st.url || "");
+      setSent(st.sent);
     } else {
       setInvoiceId("");
       setInvoiceUrl("");
@@ -164,6 +181,7 @@ export default function Home() {
     }
   }
 
+  // Single invoice draft creation (used when single report)
   async function createDraft() {
     if (!review || !reviewId || !approvalToken) return;
     setBusy(true);
@@ -179,10 +197,6 @@ export default function Home() {
       setInvoiceId(body.id);
       setSendToken(body.sendToken);
       setInvoiceUrl(body.url || "");
-      setBatchInvoices((current) => ({
-        ...current,
-        [reviewId]: { id: body.id, url: body.url || "", sent: false },
-      }));
       setNotice({ kind: "success", text: "Sandbox draft created. Review the PayPal invoice, then approve sending separately." });
     } catch (error) {
       setNotice({ kind: "error", text: error instanceof Error ? error.message : "PayPal could not create the draft." });
@@ -191,40 +205,7 @@ export default function Home() {
     }
   }
 
-  async function createAllDrafts() {
-    if (!batchReviews.length) return;
-    setBusy(true);
-    setNotice(null);
-    try {
-      const updatedBatch = { ...batchInvoices };
-      let createdCount = 0;
-      for (const rep of batchReviews) {
-        if (updatedBatch[rep.id]) continue;
-        if (rep.review.status !== "READY") continue;
-        const response = await fetch("/api/paypal/invoices", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ reviewId: rep.id, approvalToken: rep.approvalToken, review: rep.review }),
-        });
-        const body = await response.json();
-        if (response.ok && body.id) {
-          updatedBatch[rep.id] = { id: body.id, url: body.url || "", sent: false };
-          createdCount++;
-        }
-      }
-      setBatchInvoices(updatedBatch);
-      if (updatedBatch[reviewId]) {
-        setInvoiceId(updatedBatch[reviewId].id);
-        setInvoiceUrl(updatedBatch[reviewId].url);
-      }
-      setNotice({ kind: "success", text: `Successfully created ${createdCount} draft(s) in PayPal Sandbox.` });
-    } catch (error) {
-      setNotice({ kind: "error", text: error instanceof Error ? error.message : "Error creating batch drafts." });
-    } finally {
-      setBusy(false);
-    }
-  }
-
+  // Single invoice send (used when single report)
   async function sendInvoice() {
     if (!invoiceId || !sendToken || !reviewId) return;
     setBusy(true);
@@ -238,16 +219,170 @@ export default function Home() {
       const body = await response.json();
       if (!response.ok) throw new Error(body.error || "PayPal could not send the invoice.");
       setSent(true);
-      setBatchInvoices((current) => ({
-        ...current,
-        [reviewId]: { ...(current[reviewId] || { id: invoiceId, url: invoiceUrl }), sent: true },
-      }));
       setNotice({ kind: "success", text: "Invoice sent through PayPal sandbox." });
     } catch (error) {
       setNotice({ kind: "error", text: error instanceof Error ? error.message : "PayPal could not send the invoice." });
     } finally {
       setBusy(false);
     }
+  }
+
+  // Multi-invoice: Approve & Send a single report
+  async function handleApproveSingle(rep: BatchReportReview) {
+    setBatchStatuses((prev) => ({
+      ...prev,
+      [rep.id]: { ...(prev[rep.id] || { sent: false, dismissed: false }), busy: true, error: undefined },
+    }));
+
+    try {
+      // 1. Create draft
+      const createRes = await fetch("/api/paypal/invoices", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          reviewId: rep.id,
+          approvalToken: rep.approvalToken,
+          review: rep.review,
+        }),
+      });
+      const createBody = await createRes.json();
+      if (!createRes.ok || !createBody.id) {
+        throw new Error(createBody.error || "PayPal draft creation failed.");
+      }
+
+      const invId = createBody.id;
+      const invUrl = createBody.url || `https://www.sandbox.paypal.com/invoice/payerView/details/${invId}`;
+      const sToken = createBody.sendToken;
+
+      // 2. Immediately send so hosted view is live
+      const sendRes = await fetch(`/api/paypal/invoices/${encodeURIComponent(invId)}/send`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ reviewId: rep.id, sendToken: sToken }),
+      });
+      const sendBody = await sendRes.json();
+      if (!sendRes.ok) {
+        throw new Error(sendBody.error || "Draft created, but sending failed.");
+      }
+
+      setBatchStatuses((prev) => ({
+        ...prev,
+        [rep.id]: {
+          invoiceId: invId,
+          url: invUrl,
+          sent: true,
+          dismissed: false,
+          busy: false,
+        },
+      }));
+
+      if (rep.id === reviewId) {
+        setInvoiceId(invId);
+        setInvoiceUrl(invUrl);
+        setSent(true);
+      }
+
+      setNotice({
+        kind: "success",
+        text: `${rep.sectionTitle} approved & sent. Hosted invoice is now live in PayPal Sandbox.`,
+      });
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : "Approval failed";
+      setBatchStatuses((prev) => ({
+        ...prev,
+        [rep.id]: { ...(prev[rep.id] || { sent: false, dismissed: false }), busy: false, error: msg },
+      }));
+      setNotice({ kind: "error", text: msg });
+    }
+  }
+
+  // Multi-invoice: Dismiss a report
+  function handleDismissSingle(reportId: string) {
+    setBatchStatuses((prev) => ({
+      ...prev,
+      [reportId]: { ...(prev[reportId] || { sent: false, busy: false }), dismissed: true },
+    }));
+  }
+
+  // Multi-invoice: Approve & Send all pending reports at the same time
+  async function handleApproveAll() {
+    const pending = batchReviews.filter((rep) => {
+      const st = batchStatuses[rep.id];
+      return !st?.dismissed && !st?.sent && rep.review.status === "READY";
+    });
+    if (!pending.length) return;
+
+    setGlobalBatchBusy(true);
+    setNotice({ kind: "info", text: `Approving and sending ${pending.length} invoices through PayPal sandbox...` });
+
+    let sentCount = 0;
+    for (const rep of pending) {
+      setBatchStatuses((prev) => ({
+        ...prev,
+        [rep.id]: { ...(prev[rep.id] || { sent: false, dismissed: false }), busy: true, error: undefined },
+      }));
+
+      try {
+        const createRes = await fetch("/api/paypal/invoices", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            reviewId: rep.id,
+            approvalToken: rep.approvalToken,
+            review: rep.review,
+          }),
+        });
+        const createBody = await createRes.json();
+        if (!createRes.ok || !createBody.id) {
+          throw new Error(createBody.error || "Draft failed");
+        }
+
+        const invId = createBody.id;
+        const invUrl = createBody.url || `https://www.sandbox.paypal.com/invoice/payerView/details/${invId}`;
+        const sToken = createBody.sendToken;
+
+        const sendRes = await fetch(`/api/paypal/invoices/${encodeURIComponent(invId)}/send`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ reviewId: rep.id, sendToken: sToken }),
+        });
+        const sendBody = await sendRes.json();
+        if (!sendRes.ok) {
+          throw new Error(sendBody.error || "Send failed");
+        }
+
+        setBatchStatuses((prev) => ({
+          ...prev,
+          [rep.id]: {
+            invoiceId: invId,
+            url: invUrl,
+            sent: true,
+            dismissed: false,
+            busy: false,
+          },
+        }));
+
+        if (rep.id === reviewId) {
+          setInvoiceId(invId);
+          setInvoiceUrl(invUrl);
+          setSent(true);
+        }
+
+        sentCount++;
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : "Failed";
+        setBatchStatuses((prev) => ({
+          ...prev,
+          [rep.id]: { ...(prev[rep.id] || { sent: false, dismissed: false }), busy: false, error: msg },
+        }));
+      }
+    }
+
+    setGlobalBatchBusy(false);
+    setNotice({
+      kind: "success",
+      text: `Batch complete: ${sentCount} invoice(s) sent through PayPal. All hosted invoice links are live.`,
+    });
   }
 
   function addItem() {
@@ -259,6 +394,9 @@ export default function Home() {
     invalidateReview();
     setData((current) => ({ ...current, items: current.items.filter((_, i) => i !== index) }));
   }
+
+  const activeBatchReviews = batchReviews.filter((rep) => !batchStatuses[rep.id]?.dismissed);
+  const activePendingCount = activeBatchReviews.filter((rep) => !batchStatuses[rep.id]?.sent && rep.review.status === "READY").length;
 
   return (
     <main className="app-shell">
@@ -325,13 +463,15 @@ export default function Home() {
               <div style={{ margin: "16px 0", padding: "12px", background: "#f8fafc", borderRadius: "8px", border: "1px solid #cbd5e1" }}>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "8px" }}>
                   <strong style={{ fontSize: "14px", color: "#0f172a" }}>Multi-Invoice Document: Found {batchReviews.length} Reports</strong>
-                  <span style={{ fontSize: "12px", color: "#64748b" }}>Click to view &amp; approve each</span>
+                  <span style={{ fontSize: "12px", color: "#64748b" }}>Click to view details in form</span>
                 </div>
                 <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
                   {batchReviews.map((rep, idx) => {
                     const isSelected = idx === selectedBatchIndex;
+                    const st = batchStatuses[rep.id];
+                    const isDismissed = st?.dismissed;
+                    const isSent = st?.sent;
                     const isReady = rep.review.status === "READY";
-                    const isCreated = Boolean(batchInvoices[rep.id]);
                     return (
                       <button
                         key={rep.id}
@@ -342,7 +482,8 @@ export default function Home() {
                           borderRadius: "6px",
                           border: isSelected ? "2px solid #0284c7" : "1px solid #cbd5e1",
                           background: isSelected ? "#0284c7" : "#ffffff",
-                          color: isSelected ? "#ffffff" : "#0f172a",
+                          color: isSelected ? "#ffffff" : isDismissed ? "#94a3b8" : "#0f172a",
+                          textDecoration: isDismissed ? "line-through" : "none",
                           cursor: "pointer",
                           fontWeight: isSelected ? "600" : "400",
                           fontSize: "13px",
@@ -353,8 +494,8 @@ export default function Home() {
                       >
                         <span>{rep.sectionTitle.length > 32 ? `${rep.sectionTitle.slice(0, 32)}…` : rep.sectionTitle}</span>
                         <span style={{ fontSize: "11px", opacity: 0.85 }}>({formatMoney(rep.review.totalMinor, rep.review.input.currency)})</span>
-                        <span style={{ fontSize: "11px", padding: "1px 5px", borderRadius: "4px", background: isSelected ? "rgba(255,255,255,0.2)" : isReady ? "rgba(16, 185, 129, 0.15)" : "rgba(239, 68, 68, 0.15)", color: isSelected ? "#ffffff" : isReady ? "#059669" : "#dc2626" }}>
-                          {isCreated ? "DRAFTED" : isReady ? "READY" : "HOLD"}
+                        <span style={{ fontSize: "11px", padding: "1px 5px", borderRadius: "4px", background: isSelected ? "rgba(255,255,255,0.2)" : isSent ? "rgba(16, 185, 129, 0.15)" : isReady ? "rgba(2, 132, 199, 0.15)" : "rgba(239, 68, 68, 0.15)", color: isSelected ? "#ffffff" : isSent ? "#059669" : isReady ? "#0284c7" : "#dc2626" }}>
+                          {isDismissed ? "EXCLUDED" : isSent ? "SENT" : isReady ? "READY" : "HOLD"}
                         </span>
                       </button>
                     );
@@ -427,60 +568,157 @@ export default function Home() {
               <div><strong>{finding.severity === "block" ? "Hold" : "Review"}</strong><p>{finding.message}</p></div>
             </li>)}</ul>}
 
-            {review.status === "READY" && <div className="approval-row">
-              <div>
-                <strong>Ready for your approval</strong>
-                <span>{paypalConfigured === true ? (batchReviews.length > 1 ? "Approve this report draft or batch-create all drafts." : "Creating a draft does not send it.") : paypalConfigured === false ? "Add PayPal sandbox credentials to enable invoice actions." : "Checking PayPal sandbox connection…"}</span>
-              </div>
-              <div style={{ display: "flex", gap: "10px", flexWrap: "wrap", alignItems: "center" }}>
+            {/* ONLY show single approval row if NOT multi-report */}
+            {review.status === "READY" && batchReviews.length <= 1 && (
+              <div className="approval-row">
+                <div>
+                  <strong>Ready for your approval</strong>
+                  <span>{paypalConfigured === true ? "Creating a draft does not send it." : paypalConfigured === false ? "Add PayPal sandbox credentials to enable invoice actions." : "Checking PayPal sandbox connection…"}</span>
+                </div>
                 <button type="button" className="button-primary" onClick={createDraft} disabled={busy || !approvalToken || paypalConfigured !== true}>
                   {busy ? <><span className="spinner" />Working</> : <>Approve &amp; create draft <Icon name="arrow" size={17} /></>}
                 </button>
-                {batchReviews.length > 1 && (
-                  <button type="button" className="button-secondary" onClick={createAllDrafts} disabled={busy || paypalConfigured !== true}>
-                    Approve all ({batchReviews.length}) drafts
-                  </button>
-                )}
               </div>
-            </div>}
+            )}
           </section>}
 
-          {invoiceId && <section className={`surface draft-surface${sent ? " is-sent" : ""}`} aria-labelledby="draft-title">
-            <div className="draft-heading"><span className="draft-icon"><Icon name={sent ? "check" : "file"} size={20} /></span><div><h2 id="draft-title">{sent ? "Invoice sent" : "Sandbox draft created"}</h2><p>{sent ? "PayPal accepted the send request." : "Approve sending to issue the invoice to the buyer."}</p></div></div>
-            <div className="draft-reference"><span>PayPal invoice ID</span><code>{invoiceId}</code></div>
-            <div className="draft-actions">{sent && invoiceUrl && <a className="button-secondary" href={invoiceUrl} target="_blank" rel="noreferrer">Open hosted invoice <Icon name="arrow" size={16} /></a>}{!sent && <button type="button" className="button-primary" onClick={sendInvoice} disabled={busy || !sendToken}>{busy ? <><span className="spinner" />Sending</> : <>Approve &amp; send invoice <Icon name="arrow" size={17} /></>}</button>}</div>
-          </section>}
+          {/* Single invoice draft view (only when single report) */}
+          {batchReviews.length <= 1 && invoiceId && (
+            <section className={`surface draft-surface${sent ? " is-sent" : ""}`} aria-labelledby="draft-title">
+              <div className="draft-heading"><span className="draft-icon"><Icon name={sent ? "check" : "file"} size={20} /></span><div><h2 id="draft-title">{sent ? "Invoice sent" : "Sandbox draft created"}</h2><p>{sent ? "PayPal accepted the send request." : "Approve sending to issue the invoice to the buyer."}</p></div></div>
+              <div className="draft-reference"><span>PayPal invoice ID</span><code>{invoiceId}</code></div>
+              <div className="draft-actions">{sent && invoiceUrl && <a className="button-secondary" href={invoiceUrl} target="_blank" rel="noreferrer">Open hosted invoice <Icon name="arrow" size={16} /></a>}{!sent && <button type="button" className="button-primary" onClick={sendInvoice} disabled={busy || !sendToken}>{busy ? <><span className="spinner" />Sending</> : <>Approve &amp; send invoice <Icon name="arrow" size={17} /></>}</button>}</div>
+            </section>
+          )}
 
-          {Object.keys(batchInvoices).length > 1 && (
-            <section className="surface draft-surface" style={{ marginTop: "16px" }}>
+          {/* MULTI-INVOICE APPROVALS & BATCH CARDS (Rendered when multi-report detected) */}
+          {batchReviews.length > 1 && (
+            <section className="surface draft-surface" style={{ marginTop: "24px" }} aria-labelledby="batch-heading">
               <div className="draft-heading">
-                <span className="draft-icon"><Icon name="check" size={20} /></span>
+                <span className="draft-icon"><Icon name={activePendingCount === 0 ? "check" : "file"} size={20} /></span>
                 <div>
-                  <h2>Batch Invoices Summary</h2>
-                  <p>All PayPal sandbox drafts created from this multi-report PDF</p>
+                  <h2 id="batch-heading">Multi-Invoice Reports ({activeBatchReviews.length})</h2>
+                  <p>{activePendingCount === 0 ? "All detected invoices have been sent through PayPal Sandbox." : "Review each report. Approve individually with the side button, dismiss with ✕, or approve all at once below."}</p>
                 </div>
               </div>
-              <div style={{ display: "flex", flexDirection: "column", gap: "8px", marginTop: "12px" }}>
-                {batchReviews.map((rep) => {
-                  const item = batchInvoices[rep.id];
-                  if (!item) return null;
+
+              <div style={{ display: "flex", flexDirection: "column", gap: "10px", marginTop: "16px" }}>
+                {activeBatchReviews.map((rep) => {
+                  const st = batchStatuses[rep.id] || { sent: false, dismissed: false, busy: false };
+                  const isReady = rep.review.status === "READY";
                   return (
-                    <div key={rep.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 14px", background: "#f8fafc", borderRadius: "6px", border: "1px solid #e2e8f0" }}>
-                      <div>
-                        <strong>{rep.sectionTitle}</strong>
-                        <div style={{ fontSize: "12px", color: "#64748b" }}><code>{item.id}</code> · {formatMoney(rep.review.totalMinor, rep.review.input.currency)}</div>
+                    <div
+                      key={rep.id}
+                      style={{
+                        display: "flex",
+                        justifyContent: "space-between",
+                        alignItems: "center",
+                        padding: "14px 16px",
+                        background: st.sent ? "rgba(16, 185, 129, 0.04)" : "#ffffff",
+                        border: st.sent ? "1px solid rgba(16, 185, 129, 0.3)" : "1px solid #cbd5e1",
+                        borderRadius: "8px",
+                        gap: "14px",
+                      }}
+                    >
+                      {/* Left: Report info */}
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap", marginBottom: "4px" }}>
+                          <strong style={{ fontSize: "14px", color: "#0f172a" }}>{rep.sectionTitle}</strong>
+                          <span
+                            style={{
+                              fontSize: "11px",
+                              fontWeight: 600,
+                              padding: "2px 6px",
+                              borderRadius: "4px",
+                              background: st.sent ? "rgba(16, 185, 129, 0.15)" : isReady ? "rgba(2, 132, 199, 0.12)" : "rgba(239, 68, 68, 0.12)",
+                              color: st.sent ? "#059669" : isReady ? "#0284c7" : "#dc2626",
+                            }}
+                          >
+                            {st.sent ? "SENT ✓" : isReady ? "READY" : "HOLD"}
+                          </span>
+                        </div>
+                        <div style={{ fontSize: "13px", color: "#475569", display: "flex", gap: "10px", flexWrap: "wrap" }}>
+                          <span>PO: <code>{rep.review.input.poNumber}</code></span>
+                          <span>•</span>
+                          <strong>{formatMoney(rep.review.totalMinor, rep.review.input.currency)}</strong>
+                          {st.invoiceId && (
+                            <>
+                              <span>•</span>
+                              <span><code>{st.invoiceId}</code></span>
+                            </>
+                          )}
+                        </div>
+                        {st.error && (
+                          <div style={{ marginTop: "4px", fontSize: "12px", color: "#dc2626" }}>
+                            {st.error}
+                          </div>
+                        )}
                       </div>
-                      {item.sent && item.url ? (
-                        <a className="button-secondary" style={{ padding: "6px 10px", fontSize: "12px" }} href={item.url} target="_blank" rel="noreferrer">
-                          Open hosted invoice <Icon name="arrow" size={12} />
-                        </a>
-                      ) : (
-                        <span style={{ fontSize: "12px", color: "#0284c7", fontWeight: 600 }}>Draft Ready</span>
-                      )}
+
+                      {/* Right: Actions */}
+                      <div style={{ display: "flex", alignItems: "center", gap: "8px", flexShrink: 0 }}>
+                        {st.sent && st.url ? (
+                          <a
+                            className="button-secondary"
+                            href={st.url}
+                            target="_blank"
+                            rel="noreferrer"
+                            style={{ display: "inline-flex", alignItems: "center", gap: "6px", fontSize: "13px", padding: "8px 12px" }}
+                          >
+                            Open hosted invoice <Icon name="arrow" size={14} />
+                          </a>
+                        ) : (
+                          <>
+                            <button
+                              type="button"
+                              className="button-primary"
+                              disabled={st.busy || globalBatchBusy || !isReady || paypalConfigured !== true}
+                              onClick={() => handleApproveSingle(rep)}
+                              style={{ fontSize: "12px", padding: "7px 12px", display: "inline-flex", alignItems: "center", gap: "4px" }}
+                            >
+                              {st.busy ? (
+                                <><span className="spinner" />Sending...</>
+                              ) : (
+                                <>Approve <Icon name="check" size={13} /></>
+                              )}
+                            </button>
+                            <button
+                              type="button"
+                              className="icon-button"
+                              disabled={st.busy || globalBatchBusy}
+                              onClick={() => handleDismissSingle(rep.id)}
+                              title="Don't approve this invoice"
+                              aria-label="Don't approve this invoice"
+                              style={{ border: "1px solid #cbd5e1", borderRadius: "6px", width: "32px", height: "32px", display: "inline-flex", alignItems: "center", justifyContent: "center", color: "#64748b" }}
+                            >
+                              <Icon name="close" size={14} />
+                            </button>
+                          </>
+                        )}
+                      </div>
                     </div>
                   );
                 })}
               </div>
+
+              {/* Big prominent button at bottom to approve all at the same time */}
+              {activePendingCount > 0 && (
+                <div style={{ marginTop: "20px", display: "flex", justifyContent: "center" }}>
+                  <button
+                    type="button"
+                    className="button-primary"
+                    onClick={handleApproveAll}
+                    disabled={globalBatchBusy || paypalConfigured !== true}
+                    style={{ width: "100%", padding: "14px 20px", fontSize: "15px", fontWeight: 600, display: "flex", justifyContent: "center", alignItems: "center", gap: "8px" }}
+                  >
+                    {globalBatchBusy ? (
+                      <><span className="spinner" />Approving &amp; sending {activePendingCount} invoices in PayPal...</>
+                    ) : (
+                      <>Approve all ({activePendingCount}) invoices at the same time <Icon name="arrow" size={17} /></>
+                    )}
+                  </button>
+                </div>
+              )}
             </section>
           )}
         </section>
