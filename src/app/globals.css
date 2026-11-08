@@ -683,6 +683,171 @@ input, select { caret-color: var(--blue); }
   background: #ffffff;
 }
 
+/* ==========================================================================
+   Relief Ready Verified Disbursement Certificate Modal
+   ========================================================================== */
+
+.cert-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.65);
+  backdrop-filter: blur(4px);
+  z-index: 999;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  animation: fadeIn 160ms ease;
+}
+.cert-modal {
+  width: min(720px, 100%);
+  max-height: 90vh;
+  overflow-y: auto;
+  background: #ffffff;
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--border);
+  box-shadow: 0 25px 50px -12px rgb(16 40 84 / 25%);
+  padding: 32px;
+  animation: modalSlideUp 200ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+@keyframes modalSlideUp {
+  from { opacity: 0; transform: translateY(12px) scale(0.98); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+.cert-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 16px;
+  padding-bottom: 20px;
+  border-bottom: 1.5px solid var(--border);
+  margin-bottom: 22px;
+}
+.cert-brand-group {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.cert-seal {
+  width: 44px;
+  height: 44px;
+  border-radius: 12px;
+  background: var(--blue);
+  color: #ffffff;
+  display: grid;
+  place-items: center;
+  font-size: 16px;
+  font-weight: 800;
+  letter-spacing: -0.05em;
+  flex-shrink: 0;
+}
+.cert-title-group h2 {
+  margin: 0;
+  font-size: 19px;
+  font-weight: 700;
+  color: var(--ink);
+  letter-spacing: -0.025em;
+}
+.cert-title-group p {
+  margin: 2px 0 0;
+  font-size: 12px;
+  color: var(--muted);
+}
+.cert-meta-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+  background: var(--canvas);
+  border-radius: var(--radius-md);
+  padding: 16px 18px;
+  border: 1px solid var(--border);
+  margin-bottom: 22px;
+}
+.cert-meta-item {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.cert-meta-label {
+  font-size: 11px;
+  font-weight: 650;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.cert-meta-value {
+  font-size: 13.5px;
+  font-weight: 650;
+  color: var(--ink);
+  overflow-wrap: anywhere;
+}
+.cert-items-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+  margin-bottom: 20px;
+}
+.cert-items-table th {
+  padding: 10px 12px;
+  background: #f1f5f9;
+  color: #334155;
+  font-weight: 700;
+  border-bottom: 1.5px solid var(--border);
+  text-align: left;
+}
+.cert-items-table td {
+  padding: 12px 12px;
+  border-bottom: 1px solid var(--border);
+  color: var(--ink);
+}
+.cert-total-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 16px 20px;
+  background: #eff6ff;
+  border-radius: var(--radius-md);
+  border: 1.5px solid #bfdbfe;
+  margin-bottom: 22px;
+}
+.cert-proof-box {
+  background: #f8fafc;
+  border: 1px dashed #cbd5e1;
+  border-radius: var(--radius-md);
+  padding: 14px 16px;
+  margin-bottom: 24px;
+}
+.cert-proof-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: #334155;
+  margin-bottom: 6px;
+}
+.cert-proof-item:last-child {
+  margin-bottom: 0;
+}
+.cert-proof-item svg {
+  color: var(--success);
+  flex-shrink: 0;
+}
+.cert-actions {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 12px;
+  padding-top: 18px;
+  border-top: 1px solid var(--border);
+}
+
+@media (max-width: 600px) {
+  .cert-modal { padding: 20px 16px; }
+  .cert-meta-grid { grid-template-columns: minmax(0, 1fr); gap: 12px; }
+  .cert-actions { flex-direction: column-reverse; }
+  .cert-actions > button, .cert-actions > a { width: 100%; justify-content: center; }
+}
+
 @media (max-width: 768px) {
   .metric-strip { grid-template-columns: minmax(0, 1fr); gap: 12px; }
   .campaign-metrics-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }

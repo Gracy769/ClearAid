@@ -52,13 +52,19 @@ export const DEFAULT_DISBURSEMENTS: PublicDisbursementRecord[] = [
     campaignTitle: "Emergency Trauma Kits & Surgical Field Hospital",
     paypalInvoiceId: "INV2-8LT9-FGSB-PZ6Q-J684",
     vendorName: "Apex Cloud Systems & Studio Lab Inc.",
+    buyerName: "Global Emergency Health Corps",
+    grantCode: "GRANT-RELIEF-2026-MED01",
     category: "Enterprise Multi-VPC Medical Telemetry & Starlink Edge",
     amountMinor: 1250000, // $12,500.00
     currency: "USD",
     preflightProofHash: "sha256:7f3a9e21db4b8fc4aa913b8e72c5da191e48bc4a9d701f56d981e4b3",
     timestamp: "Nov 07, 2026 · 18:42 UTC",
-    hostedInvoiceUrl: "https://www.sandbox.paypal.com/invoice/p/#INV2-8LT9-FGSB-PZ6Q-J684",
     status: "PAID_VIA_PAYPAL",
+    isSimulated: true,
+    items: [
+      { description: "Enterprise Multi-VPC Cloud Architecture (Field Telemetry)", quantity: "30", unitAmount: "250.00" },
+      { description: "Cloudflare Zero Trust & Tunnel Field Routing Nodes", quantity: "25", unitAmount: "200.00" },
+    ],
   },
   {
     id: "DISB-9FAY-ENJ3",
@@ -66,13 +72,19 @@ export const DEFAULT_DISBURSEMENTS: PublicDisbursementRecord[] = [
     campaignTitle: "Clean Water Desalination & Solar Purification Rigs",
     paypalInvoiceId: "INV2-9FAY-ENJ3-VH2N-CN2E",
     vendorName: "OmniGlobal Operations Corp.",
+    buyerName: "PureRelief International",
+    grantCode: "GRANT-RELIEF-2026-WTR02",
     category: "Solar Reverse Osmosis Rigs & Chlorine Sachet Pallets",
     amountMinor: 1450000, // $14,500.00
     currency: "USD",
     preflightProofHash: "sha256:a4c82b196ff3dd7201cba639148bc291583099fe682918bbda821033",
     timestamp: "Nov 08, 2026 · 02:15 UTC",
-    hostedInvoiceUrl: "https://www.sandbox.paypal.com/invoice/p/#INV2-9FAY-ENJ3-VH2N-CN2E",
     status: "PAID_VIA_PAYPAL",
+    isSimulated: true,
+    items: [
+      { description: "Solar Reverse Osmosis Mobile Filtration Skids", quantity: "2", unitAmount: "5000.00" },
+      { description: "Chlorine Sachet Water Purification Pallets (10,000 treatments)", quantity: "3", unitAmount: "1500.00" },
+    ],
   },
   {
     id: "DISB-Z9UV-28AS",
@@ -80,13 +92,19 @@ export const DEFAULT_DISBURSEMENTS: PublicDisbursementRecord[] = [
     campaignTitle: "Rapid Thermal Shelters & Micro-Grid Generators",
     paypalInvoiceId: "INV2-Z9UV-28AS-RHV2-2R9Q",
     vendorName: "Nordic Field Power Systems LLC",
+    buyerName: "Rapid Habitat Response",
+    grantCode: "GRANT-RELIEF-2026-SHL03",
     category: "15kVA Whisper Generators, Distribution Panels & Cold Fuel",
     amountMinor: 940000, // $9,400.00
     currency: "USD",
     preflightProofHash: "sha256:e1b773c091adbb620947ba9811eef4a898b112ca001fe82914ba1139",
     timestamp: "Nov 08, 2026 · 04:30 UTC",
-    hostedInvoiceUrl: "https://www.sandbox.paypal.com/invoice/p/#INV2-Z9UV-28AS-RHV2-2R9Q",
     status: "PAID_VIA_PAYPAL",
+    isSimulated: true,
+    items: [
+      { description: "15kVA Silent Diesel Generator Units with Inverters", quantity: "2", unitAmount: "3800.00" },
+      { description: "Winterized Sub-Zero Fuel Drums & Distribution Harness", quantity: "3", unitAmount: "600.00" },
+    ],
   },
 ];
 
@@ -100,7 +118,6 @@ export function formatCurrencyMinor(minor: number, currency = "USD"): string {
 }
 
 export function getRemainingGrantCapMinor(campaign: ReliefCampaign): number {
-  // Remaining uncommitted budget = raised donations - already disbursed
   const remaining = campaign.raisedMinor - campaign.disbursedMinor;
   return Math.max(0, remaining);
 }
@@ -129,11 +146,14 @@ export function recordDisbursement(
     campaignTitle: string;
     paypalInvoiceId: string;
     vendorName: string;
+    buyerName?: string;
+    grantCode?: string;
     category: string;
     amountMinor: number;
     currency: string;
     preflightProofHash: string;
     hostedInvoiceUrl?: string;
+    items?: Array<{ description: string; quantity: string; unitAmount: string }>;
   }
 ): {
   campaigns: ReliefCampaign[];
@@ -146,6 +166,8 @@ export function recordDisbursement(
     campaignTitle: data.campaignTitle,
     paypalInvoiceId: data.paypalInvoiceId,
     vendorName: data.vendorName,
+    buyerName: data.buyerName,
+    grantCode: data.grantCode,
     category: data.category,
     amountMinor: data.amountMinor,
     currency: data.currency,
@@ -153,6 +175,8 @@ export function recordDisbursement(
     timestamp: new Date().toUTCString().replace("GMT", "UTC"),
     hostedInvoiceUrl: data.hostedInvoiceUrl,
     status: "PAID_VIA_PAYPAL",
+    isSimulated: false,
+    items: data.items,
   };
 
   const updatedCampaigns = campaigns.map((c) => {

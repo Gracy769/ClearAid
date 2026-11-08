@@ -44,6 +44,8 @@ export type PublicDisbursementRecord = {
   campaignTitle: string;
   paypalInvoiceId: string;
   vendorName: string;
+  buyerName?: string;
+  grantCode?: string;
   category: string;
   amountMinor: number;
   currency: string;
@@ -51,4 +53,6 @@ export type PublicDisbursementRecord = {
   timestamp: string;
   hostedInvoiceUrl?: string;
   status: "VERIFIED_DRAFT" | "PAID_VIA_PAYPAL";
+  isSimulated?: boolean;
+  items?: Array<{ description: string; quantity: string; unitAmount: string }>;
 };
