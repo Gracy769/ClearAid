@@ -64,16 +64,27 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Support both direct object and JSON-string responses
-    if (result && typeof result.text === "string") {
+    // Support direct object, JSON-string, and { text: "..." } responses from SDK
+    let orderObj = result;
+    if (typeof orderObj === "string") {
       try {
-        result = JSON.parse(result.text as string);
+        orderObj = JSON.parse(orderObj);
       } catch {
-        // Keep result
+        // Keep orderObj
+      }
+    } else if (orderObj && typeof (orderObj as Record<string, unknown>).text === "string") {
+      try {
+        orderObj = JSON.parse((orderObj as Record<string, unknown>).text as string);
+      } catch {
+        // Keep orderObj
       }
     }
 
-    const orderId = (result?.id as string) || (result?.orderId as string);
+    const resObj =
+      typeof orderObj === "object" && orderObj !== null
+        ? (orderObj as Record<string, unknown>)
+        : undefined;
+    const orderId = (resObj?.id as string) || (resObj?.orderId as string);
     if (!orderId) {
       return NextResponse.json(
         { error: "PayPal did not return a valid order ID." },
@@ -81,8 +92,8 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const rawLinks = (result?.links as Array<{ rel?: string; href?: string }>) || [];
-    const approvalUrl = rawLinks.find((l) => l.rel === "approve")?.href;
+    const rawLinks = (resObj?.links as Array<{ rel?: string; href?: string }>) || [];
+    const approvalUrl = rawLinks.find((l) => l.rel === "approve" || l.rel === "payer-action")?.href;
 
     await createDonationRecord({
       id: orderId,

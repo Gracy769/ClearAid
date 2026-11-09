@@ -68,6 +68,17 @@ export function resetPayPalOrderMocks() {
 // ---------------------------------------------------------------------------
 // Orders v2 Helper Functions
 // ---------------------------------------------------------------------------
+function normalizeToolResult(res: unknown): unknown {
+  if (typeof res === "string") {
+    try {
+      return JSON.parse(res);
+    } catch {
+      return res;
+    }
+  }
+  return res;
+}
+
 export async function paypalCreateOrder(input: Record<string, unknown>) {
   if (mockCreateOrder) {
     return mockCreateOrder(input);
@@ -75,7 +86,8 @@ export async function paypalCreateOrder(input: Record<string, unknown>) {
   const tools = paypalTools();
   const tool = tools.create_order;
   if (!tool?.execute) throw new Error("PayPal create_order tool is unavailable.");
-  return tool.execute(input, { toolCallId: crypto.randomUUID(), messages: [] } as never);
+  const raw = await tool.execute(input, { toolCallId: crypto.randomUUID(), messages: [] } as never);
+  return normalizeToolResult(raw);
 }
 
 export async function paypalCaptureOrder(orderId: string) {
@@ -85,7 +97,8 @@ export async function paypalCaptureOrder(orderId: string) {
   const tools = paypalTools();
   const tool = tools.pay_order;
   if (!tool?.execute) throw new Error("PayPal pay_order tool is unavailable.");
-  return tool.execute({ id: orderId }, { toolCallId: crypto.randomUUID(), messages: [] } as never);
+  const raw = await tool.execute({ id: orderId }, { toolCallId: crypto.randomUUID(), messages: [] } as never);
+  return normalizeToolResult(raw);
 }
 
 export async function paypalGetOrder(orderId: string) {
@@ -95,7 +108,8 @@ export async function paypalGetOrder(orderId: string) {
   const tools = paypalTools();
   const tool = tools.get_order;
   if (!tool?.execute) throw new Error("PayPal get_order tool is unavailable.");
-  return tool.execute({ id: orderId }, { toolCallId: crypto.randomUUID(), messages: [] } as never);
+  const raw = await tool.execute({ id: orderId }, { toolCallId: crypto.randomUUID(), messages: [] } as never);
+  return normalizeToolResult(raw);
 }
 
 // ---------------------------------------------------------------------------

@@ -99,7 +99,22 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const orderId = result?.id;
+    let orderObj = result;
+    if (typeof orderObj === "string") {
+      try {
+        orderObj = JSON.parse(orderObj);
+      } catch {}
+    } else if (orderObj && typeof (orderObj as Record<string, unknown>).text === "string") {
+      try {
+        orderObj = JSON.parse((orderObj as Record<string, unknown>).text as string);
+      } catch {}
+    }
+
+    const resObj =
+      typeof orderObj === "object" && orderObj !== null
+        ? (orderObj as Record<string, unknown>)
+        : undefined;
+    const orderId = (resObj?.id as string) || (resObj?.orderId as string);
     if (!orderId) {
       return NextResponse.json(
         { error: "PayPal order creation did not return an order ID." },
@@ -107,9 +122,9 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const links = Array.isArray(result?.links) ? result.links : [];
-    const approvalUrl = links.find((l) => l.rel === "approve")?.href;
-    const status = result?.status || "CREATED";
+    const links = Array.isArray(resObj?.links) ? (resObj.links as Array<{ rel?: string; href?: string }>) : [];
+    const approvalUrl = links.find((l) => l.rel === "approve" || l.rel === "payer-action")?.href;
+    const status = (resObj?.status as string) || "CREATED";
 
     await savePaypalOrder(orderId, reviewId.trim(), status);
 
