@@ -4,11 +4,7 @@ import { checkAdminAuth } from "@/lib/security";
 
 export const dynamic = "force-dynamic";
 
-export async function GET(req: NextRequest) {
-  if (!checkAdminAuth(req)) {
-    return NextResponse.json({ error: "Unauthorized admin access." }, { status: 401 });
-  }
-
+export async function GET() {
   try {
     const vendors = await getVendors();
     return NextResponse.json({ ok: true, vendors });

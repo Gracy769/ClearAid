@@ -156,12 +156,29 @@ export default function Home() {
   const [viewingDisbursement, setViewingDisbursement] = useState<PublicDisbursementRecord | null>(null);
 
   const VETTED_VENDORS_DEFAULT = [
-    { id: "VEND-APEX-01", name: "Apex Cloud Systems & Studio Lab Inc.", email: "sb-vendor-apex@business.example.com" },
+    { id: "VEND-APEX-01", name: "Apex Cloud Systems & Studio Lab Inc.", email: "sb-qb7vt34522927@personal.example.com" },
     { id: "VEND-OMNI-02", name: "OmniGlobal Operations Corp.", email: "sb-vendor-omni@business.example.com" },
     { id: "VEND-NORDIC-03", name: "Nordic Field Power Systems LLC", email: "sb-vendor-nordic@business.example.com" },
   ];
-  const [vettedVendors] = useState(VETTED_VENDORS_DEFAULT);
+  const [vettedVendors, setVettedVendors] = useState(VETTED_VENDORS_DEFAULT);
   const [selectedVendorId, setSelectedVendorId] = useState<string>("VEND-APEX-01");
+
+  useEffect(() => {
+    fetch("/api/vendors")
+      .then((res) => (res.ok ? res.json() : null))
+      .then((body) => {
+        if (body?.vendors && Array.isArray(body.vendors) && body.vendors.length > 0) {
+          setVettedVendors(
+            body.vendors.map((v: { id: string; name: string; payoutEmail?: string; payout_email?: string }) => ({
+              id: v.id,
+              name: v.name,
+              email: v.payoutEmail || v.payout_email || "",
+            }))
+          );
+        }
+      })
+      .catch(() => {});
+  }, []);
 
   // Donation drawer state
   const [donatingCampaignId, setDonatingCampaignId] = useState<string | null>(null);
@@ -2544,8 +2561,8 @@ export default function Home() {
                   </div>
                 </div>
                 <p style={{ fontSize: "12.5px", color: "var(--muted)", margin: "14px 0 10px", lineHeight: "1.5" }}>
-                  Every disbursement row in this ledger is cryptographically sealed with an HMAC token signed upon
-                  preflight completion.
+                  Every disbursement in this ledger is appended to a tamper-evident SHA-256 hash chain, linking each
+                  verified relief payout to its preceding block from GENESIS to HEAD.
                 </p>
                 <div className="side-panel-divider" />
                 <div className="check-list-title">
@@ -2554,7 +2571,7 @@ export default function Home() {
                 </div>
                 <ul className="check-list">
                   <li><Icon name="check" size={15} />Zero-drift dollar totals (cents-exact)</li>
-                  <li><Icon name="check" size={15} />Immutable PayPal invoice IDs (`INV2-...`)</li>
+                  <li><Icon name="check" size={15} />Append-only SHA-256 block chain verification</li>
                   <li><Icon name="check" size={15} />Grant cap threshold checks enforced</li>
                 </ul>
               </section>

@@ -1,6 +1,8 @@
 import { describe, it, beforeEach } from "node:test";
 import assert from "node:assert/strict";
+import { MockLanguageModelV1 } from "ai/test";
 import { runPreflight } from "../src/lib/preflight";
+import { runReconciliationAgent } from "../src/lib/agent/reconciliation-agent";
 import {
   _clearMemoryDb,
   appendLedger,
@@ -244,6 +246,116 @@ describe("Relief Ready Steps 1-4 Verification Suite", () => {
       assert.equal(verification.ok, true);
       assert.equal(verification.totalEntries, 3);
       assert.equal(verification.headHash, b3.entryHash);
+    });
+  });
+
+  describe("Step 5: Campaign-Wide Duplicate Bill Detection & Prevention", () => {
+    it("halts agent approval and flags BLOCKING discrepancy on duplicate PO / bill submission", async () => {
+      // 1. Seed an active funded donation and prior disbursement for CAMP-MED-01
+      const donId = `DON-DUP-${Date.now()}`;
+      await createDonationRecord({ id: donId, campaignId: "CAMP-MED-01", amountMinor: 5000000 });
+      await completeDonationCapture({ id: donId, captureId: "CAP-DUP", amountMinor: 5000000 });
+
+      await saveVendor({
+        id: "VEND-APEX-01",
+        name: "Apex Cloud Systems & Studio Lab Inc.",
+        payoutEmail: "sb-qb7vt34522927@personal.example.com",
+      });
+
+      const priorRevId = `rev_prior_${Date.now()}`;
+      await saveReview(priorRevId, { status: "READY" }, "proof_hash_1");
+      await reserveDisbursement({
+        id: `DISB-FIRST-${Date.now()}`,
+        campaignId: "CAMP-MED-01",
+        vendorId: "VEND-APEX-01",
+        reviewId: priorRevId,
+        amountMinor: 250000,
+        proofHash: "proof_hash_1",
+        poNumber: "PO-DUP-TEST-001",
+        docHash: "doc_hash_1",
+      });
+
+      // 2. Submit a second bill referencing the EXACT SAME PO in the same campaign
+      const duplicateBillInput: ReviewInput = {
+        vendorName: "Apex Cloud Systems & Studio Lab Inc.",
+        buyerName: "Global Emergency Health Corps",
+        buyerEmail: "procurement@gehc.org",
+        poNumber: "PO-DUP-TEST-001",
+        currency: "USD",
+        items: [
+          { description: "Enterprise Multi-VPC Cloud Architecture", quantity: "10", unitAmount: "250.00" },
+        ],
+        evidence: [{ document: "Grant-SOW.pdf", quote: "Duplicate test" }],
+        sourceTerms: {
+          rateCard: [
+            { description: "Enterprise Multi-VPC Cloud Architecture", maxUnitRate: "250.00", maxQuantity: 30 },
+          ],
+        },
+      };
+
+      let stepCount = 0;
+      const model = new MockLanguageModelV1({
+        doGenerate: async () => {
+          stepCount++;
+          if (stepCount === 1) {
+            // Agent executes duplicate search across campaign pool
+            return {
+              rawCall: {},
+              finishReason: "tool-calls",
+              usage: { promptTokens: 60, completionTokens: 25 },
+              toolCalls: [
+                {
+                  toolCallType: "function",
+                  toolCallId: "call_dup_1",
+                  toolName: "search_disbursements",
+                  args: JSON.stringify({
+                    campaignId: "CAMP-MED-01",
+                    poNumber: "PO-DUP-TEST-001",
+                  }),
+                },
+              ],
+            };
+          }
+          if (stepCount === 2) {
+            // Duplicate detected -> Agent logs blocking discrepancy
+            return {
+              rawCall: {},
+              finishReason: "tool-calls",
+              usage: { promptTokens: 90, completionTokens: 30 },
+              toolCalls: [
+                {
+                  toolCallType: "function",
+                  toolCallId: "call_disc_1",
+                  toolName: "record_discrepancy",
+                  args: JSON.stringify({
+                    category: "DUPLICATE_BILLING",
+                    field: "poNumber",
+                    severity: "BLOCKING",
+                    description: "Duplicate bill detected in campaign CAMP-MED-01.",
+                  }),
+                },
+              ],
+            };
+          }
+          return {
+            rawCall: {},
+            finishReason: "stop",
+            usage: { promptTokens: 110, completionTokens: 40 },
+            text: "Duplicate bill identified. Rejection mandatory.",
+          };
+        },
+      });
+
+      const result = await runReconciliationAgent({
+        reviewInput: duplicateBillInput,
+        model,
+      });
+
+      assert.equal(result.status, "DUPLICATE_DETECTED");
+      const dupDisc = result.discrepancies.find((d) => d.category === "DUPLICATE_BILLING");
+      assert.ok(dupDisc, "DUPLICATE_BILLING discrepancy must be recorded");
+      assert.equal(dupDisc.severity, "BLOCKING");
+      assert.equal(result.draftInvoiceId, undefined);
     });
   });
 });

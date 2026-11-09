@@ -19,8 +19,14 @@ import { sign } from "../src/lib/security";
 import { saveReview, ensureSchema } from "../src/lib/db";
 import type { ReviewInput, ReviewResult } from "../src/lib/types";
 
-// Load test environment
-process.loadEnvFile?.(".env.local");
+// Load test environment (guarded so tests pass on fresh clone without .env.local)
+try {
+  process.loadEnvFile?.(".env.local");
+} catch {
+  // Fallback for fresh clone / CI
+}
+process.env.APP_SECRET = process.env.APP_SECRET || "4965d070531229cafc88f882e68af6c6ac0ebe03720a2b09fcdd662adb8479c6";
+process.env.ADMIN_TOKEN = process.env.ADMIN_TOKEN || "mock-admin-token";
 
 // Preserve global fetch
 const originalFetch = globalThis.fetch;

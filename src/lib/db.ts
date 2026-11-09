@@ -84,6 +84,8 @@ export interface MemoryDisbursementRecord {
   amount_minor: bigint;
   currency: string;
   status: string;
+  po_number: string | null;
+  doc_hash: string | null;
   payout_batch_id: string | null;
   payout_item_id: string | null;
   proof_hash: string;
@@ -196,7 +198,7 @@ const SEED_CAMPAIGNS: ReliefCampaign[] = [
 ];
 
 const SEED_VENDORS = [
-  { id: "VEND-APEX-01", name: "Apex Cloud Systems & Studio Lab Inc.", payout_email: "sb-vendor-apex@business.example.com", registered_by: "ADMIN_SYSTEM" },
+  { id: "VEND-APEX-01", name: "Apex Cloud Systems & Studio Lab Inc.", payout_email: "sb-qb7vt34522927@personal.example.com", registered_by: "ADMIN_SYSTEM" },
   { id: "VEND-OMNI-02", name: "OmniGlobal Operations Corp.", payout_email: "sb-vendor-omni@business.example.com", registered_by: "ADMIN_SYSTEM" },
   { id: "VEND-NORDIC-03", name: "Nordic Field Power Systems LLC", payout_email: "sb-vendor-nordic@business.example.com", registered_by: "ADMIN_SYSTEM" },
 ];
@@ -282,9 +284,13 @@ export async function ensureSchema() {
         vendor_id text NOT NULL REFERENCES vendors(id), review_id text NOT NULL UNIQUE REFERENCES invoice_reviews(id),
         amount_minor bigint NOT NULL CHECK (amount_minor > 0), currency text NOT NULL DEFAULT 'USD',
         status text NOT NULL,
+        po_number text,
+        doc_hash text,
         payout_batch_id text, payout_item_id text, proof_hash text NOT NULL,
         created_at timestamptz DEFAULT now(), updated_at timestamptz DEFAULT now()
       )`;
+      await sql`ALTER TABLE disbursements ADD COLUMN IF NOT EXISTS po_number text`;
+      await sql`ALTER TABLE disbursements ADD COLUMN IF NOT EXISTS doc_hash text`;
       await sql`CREATE INDEX IF NOT EXISTS idx_disbursements_campaign ON disbursements(campaign_id, status)`;
 
       await sql`CREATE TABLE IF NOT EXISTS ledger_entries (
@@ -981,8 +987,10 @@ export async function reserveDisbursement(params: {
   amountMinor: number;
   proofHash: string;
   currency?: string;
+  poNumber?: string;
+  docHash?: string;
 }): Promise<{ ok: boolean; disbursementId?: string; error?: string }> {
-  const { id, campaignId, vendorId, reviewId, amountMinor, proofHash, currency = "USD" } = params;
+  const { id, campaignId, vendorId, reviewId, amountMinor, proofHash, currency = "USD", poNumber, docHash } = params;
 
   if (process.env.DATABASE_URL) {
     try {
@@ -991,8 +999,8 @@ export async function reserveDisbursement(params: {
       // Atomic pool reservation locking the campaign row
       const rows = await sql`
         WITH lock AS (SELECT id FROM campaigns WHERE id = ${campaignId} FOR UPDATE)
-        INSERT INTO disbursements (id, campaign_id, vendor_id, review_id, amount_minor, currency, status, proof_hash)
-        SELECT ${id}, ${campaignId}, ${vendorId}, ${reviewId}, ${amountMinor}, ${currency}, 'APPROVED', ${proofHash}
+        INSERT INTO disbursements (id, campaign_id, vendor_id, review_id, amount_minor, currency, status, proof_hash, po_number, doc_hash)
+        SELECT ${id}, ${campaignId}, ${vendorId}, ${reviewId}, ${amountMinor}, ${currency}, 'APPROVED', ${proofHash}, ${poNumber || null}, ${docHash || proofHash}
         FROM lock
         WHERE (SELECT COALESCE(SUM(amount_minor), 0) FROM donations WHERE campaign_id = ${campaignId} AND status = 'COMPLETED')
             - (SELECT COALESCE(SUM(amount_minor), 0) FROM disbursements WHERE campaign_id = ${campaignId}
@@ -1015,6 +1023,8 @@ export async function reserveDisbursement(params: {
           amountMinor,
           proofHash,
           currency,
+          poNumber: poNumber || null,
+          docHash: docHash || proofHash,
         },
         campaignId
       );
@@ -1027,6 +1037,8 @@ export async function reserveDisbursement(params: {
         amount_minor: BigInt(amountMinor),
         currency,
         status: "APPROVED",
+        po_number: poNumber || null,
+        doc_hash: docHash || proofHash,
         payout_batch_id: null,
         payout_item_id: null,
         proof_hash: proofHash,
@@ -1056,6 +1068,8 @@ export async function reserveDisbursement(params: {
     amount_minor: BigInt(amountMinor),
     currency,
     status: "APPROVED",
+    po_number: poNumber || null,
+    doc_hash: docHash || proofHash,
     payout_batch_id: null,
     payout_item_id: null,
     proof_hash: proofHash,
@@ -1074,6 +1088,8 @@ export async function reserveDisbursement(params: {
       amountMinor,
       proofHash,
       currency,
+      poNumber: poNumber || null,
+      docHash: docHash || proofHash,
     },
     campaignId
   );
@@ -1089,19 +1105,27 @@ export async function getDisbursements(campaignId?: string): Promise<Disbursemen
       const rows = campaignId
         ? await sql`
             SELECT d.id, d.campaign_id, d.vendor_id, d.review_id, d.amount_minor, d.currency,
-                   d.status, d.payout_batch_id, d.payout_item_id, d.proof_hash, d.created_at, d.updated_at,
+                   d.status, d.payout_batch_id, d.payout_item_id, d.proof_hash,
+                   COALESCE(d.po_number, ir.review->'input'->>'poNumber') as po_number,
+                   COALESCE(d.doc_hash, d.proof_hash) as doc_hash,
+                   d.created_at, d.updated_at,
                    v.name as vendor_name, v.payout_email
             FROM disbursements d
             LEFT JOIN vendors v ON v.id = d.vendor_id
+            LEFT JOIN invoice_reviews ir ON ir.id = d.review_id
             WHERE d.campaign_id = ${campaignId}
             ORDER BY d.created_at DESC
           `
         : await sql`
             SELECT d.id, d.campaign_id, d.vendor_id, d.review_id, d.amount_minor, d.currency,
-                   d.status, d.payout_batch_id, d.payout_item_id, d.proof_hash, d.created_at, d.updated_at,
+                   d.status, d.payout_batch_id, d.payout_item_id, d.proof_hash,
+                   COALESCE(d.po_number, ir.review->'input'->>'poNumber') as po_number,
+                   COALESCE(d.doc_hash, d.proof_hash) as doc_hash,
+                   d.created_at, d.updated_at,
                    v.name as vendor_name, v.payout_email
             FROM disbursements d
             LEFT JOIN vendors v ON v.id = d.vendor_id
+            LEFT JOIN invoice_reviews ir ON ir.id = d.review_id
             ORDER BY d.created_at DESC
           `;
 
@@ -1118,6 +1142,8 @@ export async function getDisbursements(campaignId?: string): Promise<Disbursemen
         payoutBatchId: (r.payout_batch_id as string) || undefined,
         payoutItemId: (r.payout_item_id as string) || undefined,
         proofHash: r.proof_hash as string,
+        poNumber: (r.po_number as string) || undefined,
+        docHash: (r.doc_hash as string) || undefined,
         createdAt: (r.created_at as Date).toISOString(),
         updatedAt: (r.updated_at as Date).toISOString(),
       }));
@@ -1143,6 +1169,8 @@ export async function getDisbursements(campaignId?: string): Promise<Disbursemen
       payoutBatchId: d.payout_batch_id || undefined,
       payoutItemId: d.payout_item_id || undefined,
       proofHash: d.proof_hash,
+      poNumber: d.po_number || undefined,
+      docHash: d.doc_hash || undefined,
       createdAt: d.created_at.toISOString(),
       updatedAt: d.updated_at.toISOString(),
     };

@@ -211,10 +211,13 @@ export async function runReconciliationAgent(
 
   // Tool 1b: search_disbursements (Campaign Pool Duplicate Check Action)
   const searchDisbursementsTool = tool({
-    description: "Search existing disbursements in the relief campaign pool by PO reference or vendor to check for duplicate payouts or double-billing.",
+    description: "Search existing disbursements in the relief campaign pool by campaign ID, vendor ID, PO reference, or document hash to detect duplicate payouts and double-billing.",
     parameters: z.object({
-      campaignId: z.string().optional().describe("Campaign ID to check."),
-      reference: z.string().optional().describe("PO reference number."),
+      campaignId: z.string().optional().describe("Campaign ID to check (e.g. 'CAMP-MED-01')."),
+      vendorId: z.string().optional().describe("Vendor ID or vendor name."),
+      poNumber: z.string().optional().describe("PO reference or bill number (e.g. 'PO-OMNI-2026-REP1')."),
+      reference: z.string().optional().describe("Alternative PO reference parameter."),
+      docHash: z.string().optional().describe("Cryptographic SHA-256 preflight or document hash."),
     }),
     execute: async (args, options) => {
       hasExecutedDuplicateSearch = true;
@@ -224,13 +227,43 @@ export async function runReconciliationAgent(
           rawResult = await customTools.search_disbursements.execute(args, options);
         } else {
           const campId = (args?.campaignId || (reviewInput as unknown as { campaignId?: string }).campaignId || "").trim();
+          const vendorQuery = (args?.vendorId || reviewInput.vendorName || "").trim().toLowerCase();
+          const targetPo = (args?.poNumber || args?.reference || reviewInput.poNumber || "").trim().toLowerCase();
+          const targetHash = (args?.docHash || "").trim().toLowerCase();
+
           const list = await getDisbursements(campId || undefined);
-          const targetRef = (args?.reference || reviewInput.poNumber || "").trim().toLowerCase();
-          rawResult = {
-            disbursements: list.filter((d) =>
-              (targetRef && (d.id.toLowerCase().includes(targetRef) || d.reviewId.toLowerCase().includes(targetRef)))
-            ),
-          };
+          const duplicates = list.filter((d) => {
+            if (d.status === "FAILED") return false;
+
+            // 1. Check campaign match
+            if (campId && d.campaignId && d.campaignId.toLowerCase() !== campId.toLowerCase()) {
+              return false;
+            }
+
+            // 2. Check PO / Bill number duplicate
+            if (targetPo) {
+              if (d.poNumber && d.poNumber.trim().toLowerCase() === targetPo) return true;
+              if (d.id.toLowerCase().includes(targetPo) || d.reviewId.toLowerCase().includes(targetPo)) return true;
+            }
+
+            // 3. Check Document / Proof Hash duplicate
+            if (targetHash) {
+              if (d.docHash && d.docHash.trim().toLowerCase() === targetHash) return true;
+              if (d.proofHash && d.proofHash.trim().toLowerCase() === targetHash) return true;
+            }
+
+            // 4. Same vendor + same PO
+            if (vendorQuery && targetPo) {
+              const vendorMatch =
+                (d.vendorId && d.vendorId.toLowerCase() === vendorQuery) ||
+                (d.vendorName && d.vendorName.toLowerCase().includes(vendorQuery));
+              if (vendorMatch && d.poNumber && d.poNumber.trim().toLowerCase() === targetPo) return true;
+            }
+
+            return false;
+          });
+
+          rawResult = { disbursements: duplicates };
         }
 
         const rawObj = rawResult as Record<string, unknown> | undefined;
@@ -238,19 +271,29 @@ export async function runReconciliationAgent(
         if (list.length > 0) {
           hasDuplicate = true;
           hasBlockingDiscrepancy = true;
+          const dupRef = args?.poNumber || args?.reference || reviewInput.poNumber || "provided bill";
           discrepancies.push({
             category: "DUPLICATE_BILLING",
             field: "poNumber",
             severity: "BLOCKING",
-            description: `Active duplicate disbursement found in campaign pool matching reference '${args?.reference || reviewInput.poNumber}'.`,
+            description: `Active duplicate disbursement found in relief campaign pool matching reference '${dupRef}'. Already reserved under disbursement ID '${(list[0] as { id?: string })?.id || "existing"}'.`,
             reason: "Double billing prevention policy.",
-            remedyRecommendation: "Reject duplicate disbursement request.",
+            remedyRecommendation: "Reject duplicate disbursement request. This invoice deliverable has already been funded.",
           });
-          return { duplicateFound: true, count: list.length, items: list };
+          return {
+            duplicateFound: true,
+            count: list.length,
+            items: list,
+            instruction: "DUPLICATE DISBURSEMENT DETECTED. You MUST record a DUPLICATE_BILLING discrepancy and you MUST NOT call prepare_approval.",
+          };
         }
-        return { duplicateFound: false, count: 0 };
+        return {
+          duplicateFound: false,
+          count: 0,
+          instruction: "No duplicate disbursements found in campaign pool. Proceed with SOW rate audit.",
+        };
       } catch (err) {
-        return { error: err instanceof Error ? err.message : String(err) };
+        return { isError: true, error: err instanceof Error ? err.message : String(err) };
       }
     },
   });
@@ -824,12 +867,12 @@ export async function runReconciliationAgent(
 Your mandate is to protect donor relief pools from billing discrepancies, duplicate disbursements, inflated rates, and unauthorized SOW line items.
 
 Follow this strict multi-step deliberation procedure:
-1. DUPLICATE CHECK: Call 'search_disbursements' (or 'search_invoicing') using the PO reference or campaign ID.
+1. DUPLICATE CHECK: Call 'search_disbursements' using campaign ID, vendor ID, PO reference, or document hash.
    If any active duplicate exists, call 'record_discrepancy' with category "DUPLICATE_BILLING", severity "BLOCKING", and DO NOT approve.
 2. PREFLIGHT AUDIT: Call 'audit_po_terms' to verify integer minor math, line items, SOW rate card compliance, and campaign pool cap.
 3. APPROVAL GATE:
-   - If ANY blocking discrepancies or duplicate records exist, DO NOT approve or create invoice.
-   - If and ONLY if all checks are completely clean, call 'prepare_approval' (or 'create_invoice') to verify the disbursement.
+   - If ANY blocking discrepancies or duplicate records exist, DO NOT approve.
+   - If and ONLY if all checks are completely clean, call 'prepare_approval' to verify the disbursement.
 4. SYNTHESIS: Provide a clear reconciliation summary.`;
 
   const userPrompt = `Reconcile the following invoice request against Purchase Order terms:
@@ -845,16 +888,19 @@ ${(reviewInput.evidence || []).map(e => `  [${e.document} pg.${e.page || 1}]: "$
 
 Additional Instructions: ${input.userInstruction || "Verify contract terms and prepare draft if clean."}`;
 
+  // Assemble runtime tools (including legacy actions for programmatic hard-gate adversarial testing)
+  const agentTools: Record<string, CoreTool> = {
+    search_disbursements: searchDisbursementsTool,
+    prepare_approval: prepareApprovalTool,
+    audit_po_terms: auditPoTermsTool,
+    record_discrepancy: recordDiscrepancyTool,
+    search_invoicing: searchInvoicingTool,
+    create_invoice: createInvoiceTool,
+  };
+
   const response = await generateText({
     model,
-    tools: {
-      search_disbursements: searchDisbursementsTool,
-      prepare_approval: prepareApprovalTool,
-      search_invoicing: searchInvoicingTool,
-      audit_po_terms: auditPoTermsTool,
-      record_discrepancy: recordDiscrepancyTool,
-      create_invoice: createInvoiceTool,
-    },
+    tools: agentTools,
     maxSteps: 6,
     system: systemPrompt,
     prompt: userPrompt,

@@ -91,6 +91,8 @@ export type Disbursement = {
   payoutBatchId?: string;
   payoutItemId?: string;
   proofHash: string;
+  poNumber?: string;
+  docHash?: string;
   createdAt?: string;
   updatedAt?: string;
 };

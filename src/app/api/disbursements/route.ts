@@ -132,6 +132,8 @@ export async function POST(req: NextRequest) {
       amountMinor,
       proofHash,
       currency: review.input.currency || "USD",
+      poNumber: review.input.poNumber,
+      docHash: storedReview.approval_hash,
     });
 
     if (!reservation.ok) {
