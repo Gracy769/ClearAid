@@ -62,8 +62,8 @@ export async function POST(
     const payoutBody = {
       sender_batch_header: {
         sender_batch_id: id,
-        email_subject: `Relief Ready Verified Payment: ${id}`,
-        email_message: `Verified humanitarian disbursement under campaign ${disbursement.campaignId}`,
+        email_subject: `ClearAid verified payment: ${id}`,
+        email_message: `Evidence-checked humanitarian disbursement under campaign ${disbursement.campaignId}`,
       },
       items: [
         {
@@ -73,7 +73,7 @@ export async function POST(
             currency: disbursement.currency || "USD",
           },
           receiver: vendor.payoutEmail,
-          note: `Relief Ready Verified Disbursement ${id}`,
+          note: `ClearAid verified disbursement ${id}`,
           sender_item_id: `item_${id}`,
         },
       ],

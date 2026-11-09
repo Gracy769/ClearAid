@@ -1,6 +1,6 @@
-# Relief Ready
+# ClearAid
 
-**Transparent Humanitarian Aid & Verified PayPal Disbursements**  
+**Evidence-first humanitarian procurement & verified PayPal disbursements**
 *Built for the PayPal AI Developer Challenge 2026*
 
 **Live Deployment:** [https://invoice-ready.graceperez769.workers.dev](https://invoice-ready.graceperez769.workers.dev)
@@ -9,9 +9,20 @@
 
 ## Overview
 
-Relief Ready bridges donor generosity and humanitarian aid execution with mathematical transparency. It eliminates administrative leakage and fraudulent billing in disaster response by combining **PayPal Orders v2** donation capture, deterministic **Statement of Work (SOW) preflight rate card audits**, an **Autonomous ReAct AI AP Reconciliation Agent**, **PayPal Payouts** to vetted contractors, and an immutable **SHA-256 Public Transparency Ledger** stored in Neon Serverless PostgreSQL.
+ClearAid is a control layer between humanitarian funding and field procurement. It does not claim to verify that goods physically arrived; it makes the financial approval decision auditable by combining **PayPal Orders v2** funding, deterministic **Statement of Work (SOW) preflight rate-card checks**, an **Autonomous ReAct AI AP Reconciliation Agent**, **PayPal Payouts** to registered vendors, and an immutable **SHA-256 public transparency ledger** stored in Neon Serverless PostgreSQL.
 
-Every dollar entering the pool is captured via verified PayPal transactions, locked atomically against over-subscription, and disbursed only after vendor bills clear automated contract reconciliation.
+The hackathon demo uses PayPal Sandbox data and seeded example campaigns. The product is designed for a real pilot with one NGO or pooled-fund operator, where the operator supplies approved SOWs, registered vendors, and invoice evidence. The first measurable outcome is fewer duplicate, out-of-scope, and over-cap invoices reaching payment approval—not a claim of zero fraud.
+
+## Real-world pilot path
+
+1. **Start with one operator, not the whole aid sector.** Partner with one NGO procurement or grants team that already has SOWs, vendor rosters, and invoice review pain.
+2. **Import their evidence.** Model each approved budget as a versioned SOW: allowed items, unit ceilings, quantities, currency, and budget owner. Keep the source document hash beside the rules.
+3. **Run in shadow mode.** For two weeks, ClearAid reviews real historical or already-approved invoices without controlling payment. Measure duplicate matches, blocked exceptions, reviewer time, and false positives.
+4. **Gate one payment rail.** After the operator signs off on the rules, enable PayPal Sandbox first, then production payouts only with dual approval, verified webhook events, and an exportable audit package.
+
+The pilot should report four numbers: invoice review time, percentage of invoices requiring manual rework, value of blocked exceptions, and percentage of approved payments with complete evidence. Those numbers make the product's impact testable.
+
+In the implemented flow, each recorded donation is tied to a PayPal capture, reservations are locked atomically against over-subscription, and a disbursement cannot proceed until the vendor bill clears the configured contract checks and agent gate.
 
 ---
 
@@ -110,7 +121,7 @@ npm run build:vinext
 ## Hackathon Judge Notes
 
 - **Admin Access:** To test administrative payout and SOW review actions, open the admin panel or send the header `x-admin-token: rr_admin_relief_judge_2026_9x8f`.
-- **Sandbox Environment:** All payments and payouts run in PayPal Sandbox mode.
+- **Sandbox Environment:** All payments and payouts run in PayPal Sandbox mode. The UI labels this clearly; no live donor money is moved by the demo.
 - **Auditing a Bill:** Under the **Audit & Disburse** tab, upload a searchable statement of work or use the pre-filled disaster response invoice. Click **Run Preflight**, then click **Run Autonomous AI Agent Audit**. The AI agent will inspect the campaign rate card and search for duplicate payouts before unlocking the **Approve & Pay via PayPal Payouts** action.
 
 ---

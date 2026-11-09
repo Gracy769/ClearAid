@@ -863,7 +863,7 @@ export async function runReconciliationAgent(
     },
   });
 
-  const systemPrompt = `You are an Autonomous Humanitarian Aid AP Reconciliation Specialist & Financial Auditor on the Relief Ready platform.
+  const systemPrompt = `You are an Autonomous Humanitarian Aid AP Reconciliation Specialist & Financial Auditor on the ClearAid platform.
 Your mandate is to protect donor relief pools from billing discrepancies, duplicate disbursements, inflated rates, and unauthorized SOW line items.
 
 Follow this strict multi-step deliberation procedure:

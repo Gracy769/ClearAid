@@ -132,9 +132,9 @@ export function _clearMemoryDb() {
 // ---------------------------------------------------------------------------
 const SEED_RATE_CARDS: Record<string, SOWRateCardItem[]> = {
   "CAMP-MED-01": [
-    { description: "Enterprise Multi-VPC Cloud Architecture (Field Telemetry)", maxUnitRate: "250.00", maxQuantity: 30 },
-    { description: "Cloudflare Zero Trust & Tunnel Field Routing Nodes", maxUnitRate: "200.00", maxQuantity: 25 },
     { description: "Sterile Trauma Surgical Field Packs", maxUnitRate: "450.00", maxQuantity: 50 },
+    { description: "Portable Field Anesthesia Units", maxUnitRate: "3200.00", maxQuantity: 4 },
+    { description: "Emergency Surgical Tent Stations", maxUnitRate: "8500.00", maxQuantity: 3 },
   ],
   "CAMP-WATER-02": [
     { description: "Solar Reverse Osmosis Mobile Filtration Skids", maxUnitRate: "5000.00", maxQuantity: 5 },

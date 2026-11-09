@@ -13,8 +13,8 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Relief Ready — Verified Humanitarian Aid & PayPal Invoicing",
-  description: "Transparent NGO relief platform powered by PayPal Orders v2 donations, PayPal Payouts for vetted vendors, and deterministic preflight verification.",
+  title: "ClearAid — Evidence-first aid disbursements",
+  description: "A PayPal-powered control layer for verifying humanitarian procurement before funds move.",
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {

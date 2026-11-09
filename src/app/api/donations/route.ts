@@ -48,7 +48,7 @@ export async function POST(req: NextRequest) {
       ],
       discount: 0,
       shippingCost: 0,
-      notes: `Relief Ready Humanitarian Contribution: ${campaign.id}`.slice(0, 255),
+      notes: `ClearAid humanitarian contribution: ${campaign.id}`.slice(0, 255),
       returnUrl,
       cancelUrl,
     };

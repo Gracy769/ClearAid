@@ -33,7 +33,6 @@
       "APP_SECRET",
       "PAYPAL_CLIENT_ID",
       "PAYPAL_CLIENT_SECRET",
-      "PAYPAL_WEBHOOK_ID",
       "GEMINI_API_KEY",
       "ADMIN_TOKEN"
     ]

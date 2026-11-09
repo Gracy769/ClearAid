@@ -313,7 +313,7 @@ export default function Home() {
             image: {
               src: "https://www.paypalobjects.com/en_US/i/btn/btn_donate_LG.gif",
               alt: "Donate with PayPal button",
-              title: "PayPal - Relief Ready Fund",
+              title: "PayPal - ClearAid Fund",
             },
           }).render(donateButtonHostRef.current);
         } catch {
@@ -916,15 +916,15 @@ export default function Home() {
       {/* GLOBAL HEADER */}
       <header className="topbar">
         <div className="topbar-inner">
-          <a className="brand" href="#main" aria-label="Relief Ready home">
+          <a className="brand" href="#main" aria-label="ClearAid home">
             <span className="brand-mark" aria-hidden="true">RR</span>
             <div>
-              <span className="brand-name">Relief Ready</span>
+              <span className="brand-name">ClearAid</span>
             </div>
           </a>
           <div className="topbar-note">
             <Icon name="shield" size={16} />
-            <span>Verified Humanitarian Aid &amp; PayPal Invoicing</span>
+            <span>Evidence-first aid disbursements</span>
           </div>
           <span className="sandbox-badge">
             <span className="sandbox-dot" />
@@ -1019,9 +1019,9 @@ export default function Home() {
           {activePlatformTab === "campaigns" && (
             <div>
               <div className="intro">
-                <h1 id="page-title">Transparent disaster relief. Zero unverified leakage.</h1>
+                <h1 id="page-title">Make every aid payment explainable.</h1>
                 <p>
-                  Donate directly via PayPal to emergency response pools. Funds are reserved and disbursed only after field contractor invoices pass deterministic preflight verification.
+                  ClearAid connects PayPal funding to evidence-backed procurement. A vendor invoice is checked against the approved scope, rate card, budget, and prior payments before a human can release funds.
                 </p>
               </div>
 
@@ -1034,7 +1034,7 @@ export default function Home() {
                   <div className="metric-card-value" style={{ color: "var(--blue)" }}>
                     {formatCurrencyMinor(totalRaisedMinor)}
                   </div>
-                  <div className="metric-card-sub">Captured via PayPal Orders</div>
+                  <div className="metric-card-sub">Captured via PayPal Sandbox</div>
                 </div>
 
                 <div className="metric-card">
@@ -1044,7 +1044,7 @@ export default function Home() {
                   <div className="metric-card-value" style={{ color: "var(--success)" }}>
                     {formatCurrencyMinor(totalDisbursedMinor)}
                   </div>
-                  <div className="metric-card-sub">Preflight verified field invoices</div>
+                  <div className="metric-card-sub">Approved after evidence checks</div>
                 </div>
 
                 <div className="metric-card">
@@ -1054,7 +1054,7 @@ export default function Home() {
                   <div className="metric-card-value">
                     {formatCurrencyMinor(totalAvailableMinor)}
                   </div>
-                  <div className="metric-card-sub">Ready for approved aid operations</div>
+                  <div className="metric-card-sub">Available for verified operations</div>
                 </div>
               </div>
 
@@ -2495,7 +2495,7 @@ export default function Home() {
                 <div className="side-panel-divider" />
                 <div className="check-list-title">
                   <Icon name="shield" size={16} />
-                  <strong>The Relief Ready Guarantee</strong>
+                  <strong>The ClearAid control promise</strong>
                 </div>
                 <ul className="check-list">
                   <li><Icon name="check" size={15} />Line items audited against approved campaign SOW</li>
@@ -2543,7 +2543,7 @@ export default function Home() {
 
               <footer className="workspace-footer">
                 <span className="footer-mark">RR</span>
-                <span>Relief Ready</span>
+                <span>ClearAid</span>
                 <span className="footer-divider" />
                 <span>Evidence-based humanitarian aid.</span>
               </footer>
@@ -2606,7 +2606,7 @@ export default function Home() {
 
               <footer className="workspace-footer">
                 <span className="footer-mark">RR</span>
-                <span>Relief Ready</span>
+                <span>ClearAid</span>
                 <span className="footer-divider" />
                 <span>Evidence-based humanitarian aid.</span>
               </footer>
@@ -2624,7 +2624,7 @@ export default function Home() {
                 <span className="cert-seal" aria-hidden="true">RR</span>
                 <div className="cert-title-group">
                   <h2>Verified Disbursement Certificate</h2>
-                  <p>Relief Ready Deterministic Preflight &amp; PayPal Settlement</p>
+                  <p>ClearAid deterministic preflight &amp; PayPal settlement</p>
                 </div>
               </div>
               <button

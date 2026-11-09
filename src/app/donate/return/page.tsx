@@ -75,7 +75,7 @@ function DonateReturnContent() {
           <div className="w-9 h-9 rounded-lg bg-[#0057ff] flex items-center justify-center text-white font-black text-sm tracking-tight shadow-sm">
             RR
           </div>
-          <span className="font-bold text-xl text-slate-900 tracking-tight">Relief Ready</span>
+          <span className="font-bold text-xl text-slate-900 tracking-tight">ClearAid</span>
           <span className="ml-2 px-2 py-0.5 text-xs font-semibold rounded bg-amber-100 text-amber-800 border border-amber-300">
             Sandbox
           </span>
@@ -167,7 +167,7 @@ function DonateReturnContent() {
                 href="/"
                 className="w-full py-2 px-4 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-medium transition"
               >
-                Back to Relief Ready Home
+                Back to ClearAid Home
               </Link>
             </div>
           </div>
