@@ -1161,10 +1161,6 @@ function AuditPackageModal({
     URL.revokeObjectURL(url);
   }
 
-  function handlePrint() {
-    window.print();
-  }
-
   return (
     <div className="audit-modal-backdrop" onClick={onClose}>
       <div className="audit-modal" onClick={(e) => e.stopPropagation()}>
@@ -1267,14 +1263,6 @@ function AuditPackageModal({
             style={{ display: "inline-flex", alignItems: "center", gap: "6px" }}
           >
             <Icon name="download" size={14} /> Download JSON
-          </button>
-          <button
-            type="button"
-            className="button-secondary"
-            onClick={handlePrint}
-            style={{ display: "inline-flex", alignItems: "center", gap: "6px" }}
-          >
-            <Icon name="file" size={14} /> Print / Export PDF
           </button>
           <button
             type="button"
