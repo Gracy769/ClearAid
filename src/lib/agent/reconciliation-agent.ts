@@ -898,100 +898,140 @@ Additional Instructions: ${input.userInstruction || "Verify contract terms and p
     create_invoice: createInvoiceTool,
   };
 
-  const response = await generateText({
-    model,
-    tools: agentTools,
-    maxSteps: 6,
-    system: systemPrompt,
-    prompt: userPrompt,
-  });
+  let summaryText = "";
+  const steps: DeliberationStep[] = [];
 
-  // Extract Step Trace
-  const steps: DeliberationStep[] = (response.steps || []).map((step, idx) => ({
-    step: idx + 1,
-    thought: step.text || undefined,
-    toolCalls: (step.toolCalls || []).map(tc => ({
-      toolName: tc.toolName,
-      args: (tc.args || {}) as Record<string, unknown>,
-    })),
-    toolResults: (step.toolResults || []).map(tr => ({
-      toolName: tr.toolName,
-      result: tr.result,
-    })),
-  }));
+  try {
+    const response = await generateText({
+      model,
+      tools: agentTools,
+      maxSteps: 6,
+      system: systemPrompt,
+      prompt: userPrompt,
+    });
+    summaryText = response.text || "";
 
-  // Post-scan step results for created draft ID or duplicate findings
-  for (const step of response.steps || []) {
-    for (const tr of step.toolResults || []) {
-      if (tr.toolName === "create_invoice" && typeof tr.result === "object" && tr.result !== null) {
-        const res = tr.result as Record<string, unknown>;
-        const id = res.id || res.invoice_id;
-        if (id && !res.isError && !res.blocked) {
-          draftInvoiceId = String(id);
-          const links = Array.isArray(res.links) ? (res.links as Array<Record<string, unknown>>) : [];
-          const payerView = links.find((l) => l.rel === "payer-view")?.href;
-          if (payerView) {
-            invoiceUrl = String(payerView);
+    // Extract Step Trace
+    if (response.steps) {
+      for (let idx = 0; idx < response.steps.length; idx++) {
+        const step = response.steps[idx];
+        steps.push({
+          step: idx + 1,
+          thought: step.text || undefined,
+          toolCalls: (step.toolCalls || []).map((tc) => ({
+            toolName: tc.toolName,
+            args: (tc.args || {}) as Record<string, unknown>,
+          })),
+          toolResults: (step.toolResults || []).map((tr) => ({
+            toolName: tr.toolName,
+            result: tr.result,
+          })),
+        });
+
+        for (const tr of step.toolResults || []) {
+          if (tr.toolName === "create_invoice" && typeof tr.result === "object" && tr.result !== null) {
+            const res = tr.result as Record<string, unknown>;
+            const id = res.id || res.invoice_id;
+            if (id && !res.isError && !res.blocked) {
+              draftInvoiceId = String(id);
+              const links = Array.isArray(res.links) ? (res.links as Array<Record<string, unknown>>) : [];
+              const payerView = links.find((l) => l.rel === "payer-view")?.href;
+              if (payerView) {
+                invoiceUrl = String(payerView);
+              }
+            }
           }
-        }
-      }
-      if (tr.toolName === "search_disbursements") {
-        hasExecutedDuplicateSearch = true;
-        if (typeof tr.result === "object" && tr.result !== null) {
-          const res = tr.result as Record<string, unknown>;
-          if (res.duplicateFound) {
-            hasDuplicate = true;
-          }
-        }
-      }
-      if (tr.toolName === "search_invoicing") {
-        hasExecutedDuplicateSearch = true;
-        if (typeof tr.result === "object" && tr.result !== null) {
-          const res = tr.result as Record<string, unknown>;
-          const items = Array.isArray(res.items)
-            ? (res.items as Array<Record<string, unknown>>)
-            : Array.isArray(res.invoices)
-            ? (res.invoices as Array<Record<string, unknown>>)
-            : [];
-          for (const item of items) {
-            if (typeof item === "object" && item !== null) {
-              const s = String(item.status || "").toUpperCase();
-              if (s && s !== "CANCELLED" && s !== "REFUNDED" && s !== "AUTO_CANCELLED") {
+          if (tr.toolName === "search_disbursements") {
+            hasExecutedDuplicateSearch = true;
+            if (typeof tr.result === "object" && tr.result !== null) {
+              const res = tr.result as Record<string, unknown>;
+              if (res.duplicateFound) {
                 hasDuplicate = true;
-                const itemId = item.id || item.invoice_id;
-                if (!duplicateInvoices.some(d => d.id === itemId)) {
-                  const amtObj = item.amount as { value?: string } | undefined;
-                  const totalAmtObj = item.total_amount as { value?: string } | undefined;
-                  duplicateInvoices.push({
-                    id: String(itemId || "unknown"),
-                    status: s,
-                    amount: amtObj?.value || totalAmtObj?.value,
-                  });
+              }
+            }
+          }
+          if (tr.toolName === "search_invoicing") {
+            hasExecutedDuplicateSearch = true;
+            if (typeof tr.result === "object" && tr.result !== null) {
+              const res = tr.result as Record<string, unknown>;
+              const items = Array.isArray(res.items)
+                ? (res.items as Array<Record<string, unknown>>)
+                : Array.isArray(res.invoices)
+                ? (res.invoices as Array<Record<string, unknown>>)
+                : [];
+              for (const item of items) {
+                if (typeof item === "object" && item !== null) {
+                  const s = String(item.status || "").toUpperCase();
+                  if (s && s !== "CANCELLED" && s !== "REFUNDED" && s !== "AUTO_CANCELLED") {
+                    hasDuplicate = true;
+                    const itemId = item.id || item.invoice_id;
+                    if (!duplicateInvoices.some((d) => d.id === itemId)) {
+                      const amtObj = item.amount as { value?: string } | undefined;
+                      const totalAmtObj = item.total_amount as { value?: string } | undefined;
+                      duplicateInvoices.push({
+                        id: String(itemId || "unknown"),
+                        status: s,
+                        amount: amtObj?.value || totalAmtObj?.value,
+                      });
+                    }
+                  }
                 }
+              }
+            }
+          }
+          if (tr.toolName === "audit_po_terms" && typeof tr.result === "object" && tr.result !== null) {
+            const res = tr.result as Record<string, unknown>;
+            if (res.compliant === false || res.status === "HOLD") {
+              hasBlockingDiscrepancy = true;
+            }
+            if (Array.isArray(res.issues)) {
+              const issues = res.issues as Array<Record<string, unknown>>;
+              if (issues.some((i) => !i.severity || /block|critical/i.test(String(i.severity)))) {
+                hasBlockingDiscrepancy = true;
+              }
+            }
+            if (Array.isArray(res.findings)) {
+              const findings = res.findings as Array<Record<string, unknown>>;
+              if (findings.some((f) => !f.severity || /block|critical/i.test(String(f.severity)))) {
+                hasBlockingDiscrepancy = true;
               }
             }
           }
         }
       }
-      if (tr.toolName === "audit_po_terms" && typeof tr.result === "object" && tr.result !== null) {
-        const res = tr.result as Record<string, unknown>;
-        if (res.compliant === false || res.status === "HOLD") {
-          hasBlockingDiscrepancy = true;
-        }
-        if (Array.isArray(res.issues)) {
-          const issues = res.issues as Array<Record<string, unknown>>;
-          if (issues.some(i => !i.severity || /block|critical/i.test(String(i.severity)))) {
-            hasBlockingDiscrepancy = true;
-          }
-        }
-        if (Array.isArray(res.findings)) {
-          const findings = res.findings as Array<Record<string, unknown>>;
-          if (findings.some(f => !f.severity || /block|critical/i.test(String(f.severity)))) {
-            hasBlockingDiscrepancy = true;
-          }
-        }
-      }
     }
+  } catch (llmErr) {
+    console.warn("LLM generation failed, falling back to deterministic tool execution:", llmErr);
+    // Execute deterministic audit directly
+    const auditRes = await auditPoTermsTool.execute({} as never, { toolCallId: "call_audit_fallback", messages: [] } as never);
+    steps.push({
+      step: 1,
+      thought: `Autonomous audit fallback: evaluated SOW rate card ceilings and budget quota for PO ${reviewInput.poNumber}.`,
+      toolCalls: [{ toolName: "audit_po_terms", args: {} }],
+      toolResults: [{ toolName: "audit_po_terms", result: auditRes }],
+    });
+    if ((auditRes as Record<string, unknown>)?.status === "HOLD") {
+      hasBlockingDiscrepancy = true;
+    }
+
+    const dupRes = await searchDisbursementsTool.execute(
+      { poNumber: reviewInput.poNumber, campaignId: reviewInput.campaignId } as never,
+      { toolCallId: "call_dup_fallback", messages: [] } as never
+    );
+    steps.push({
+      step: 2,
+      thought: `Autonomous duplicate guard: inspected campaign pool for prior settled milestones referencing PO ${reviewInput.poNumber}.`,
+      toolCalls: [{ toolName: "search_disbursements", args: { poNumber: reviewInput.poNumber } }],
+      toolResults: [{ toolName: "search_disbursements", result: dupRes }],
+    });
+    if ((dupRes as Record<string, unknown>)?.duplicateFound) {
+      hasDuplicate = true;
+    }
+    summaryText = hasDuplicate
+      ? `Double-billing prevention: identical PO milestone already settled in campaign pool.`
+      : hasBlockingDiscrepancy
+      ? `SOW rate card discrepancy detected during contract audit.`
+      : `Reconciliation verified clean: SOW rate card and uncommitted pool caps verified.`;
   }
 
   // Resolve status deterministically
@@ -1020,7 +1060,7 @@ Additional Instructions: ${input.userInstruction || "Verify contract terms and p
     invoiceUrl,
     discrepancies,
     steps,
-    summary: response.text || (
+    summary: summaryText || (
       status === "APPROVED"
         ? `Reconciliation approved. PO ${reviewInput.poNumber} verified clean. Draft invoice ${draftInvoiceId || ""} prepared awaiting merchant authorization.`
         : status === "DUPLICATE_DETECTED"

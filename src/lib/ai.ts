@@ -2,12 +2,12 @@ import { createGoogleGenerativeAI } from "@ai-sdk/google";
 import type { LanguageModelV1 } from "ai";
 import type { ReviewInput } from "@/lib/types";
 
-export const DEFAULT_GEMINI_MODEL = "gemini-2.0-flash";
-export const FALLBACK_GEMINI_MODEL = "gemini-1.5-flash";
+export const DEFAULT_GEMINI_MODEL = "gemini-3.8-flash";
+export const FALLBACK_GEMINI_MODEL = "gemini-2.5-flash";
 
 export function resolveGeminiModelName(modelName?: string): string {
   const candidate = (modelName || process.env.GEMINI_MODEL || "").trim();
-  if (!candidate || candidate === "gemini-3.8-flash" || candidate === "gemini-2.5-flash") {
+  if (!candidate || candidate === "gemini-2.0-flash") {
     return DEFAULT_GEMINI_MODEL;
   }
   return candidate;
