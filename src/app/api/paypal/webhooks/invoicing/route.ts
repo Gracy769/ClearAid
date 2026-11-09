@@ -1,6 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
-import { recordWebhook, completeDonationCapture, updateDisbursementStatus, getDonation } from "@/lib/db";
-import { getPayPalAccessToken } from "@/lib/paypal";
+import {
+  recordWebhook,
+  completeDonationCapture,
+  reserveDonationCapture,
+  releaseDonationCapture,
+  updateDisbursementStatus,
+  getDonation,
+} from "@/lib/db";
+import { getPayPalAccessToken, paypalCaptureOrder } from "@/lib/paypal";
 import { assembleDisputeEvidencePackage, type PayPalDisputeEvent } from "@/lib/dispute";
 
 export async function POST(req: NextRequest) {
@@ -101,14 +108,26 @@ export async function POST(req: NextRequest) {
       const payerEmail = payer?.email_address as string | undefined;
 
       if (orderId && captureId) {
-        await completeDonationCapture({
-          id: orderId,
-          captureId,
-          payerEmail,
-        }).catch((err) => console.error("Webhook donation capture update error:", err));
+        try {
+          await completeDonationCapture({
+            id: orderId,
+            captureId,
+            payerEmail,
+          });
+        } catch (err) {
+          console.error("Webhook donation capture update error:", err);
+          return NextResponse.json({ error: "Database error recording donation capture." }, { status: 500 });
+        }
       }
 
-      const processed = await recordWebhook(eventId, eventType, orderId, "COMPLETED");
+      let processed = true;
+      try {
+        processed = await recordWebhook(eventId, eventType, orderId, "COMPLETED");
+      } catch (err) {
+        console.error("Webhook event persist error:", err);
+        return NextResponse.json({ error: "Failed to persist webhook event." }, { status: 500 });
+      }
+
       return NextResponse.json({
         received: true,
         duplicate: !processed,
@@ -124,12 +143,51 @@ export async function POST(req: NextRequest) {
       if (orderId) {
         const donation = await getDonation(orderId);
         if (donation && donation.status === "CREATED") {
-          const origin = req.nextUrl.origin || process.env.APP_URL || "https://invoice-ready.graceperez769.workers.dev";
-          fetch(`${origin}/api/donations/${orderId}/capture`, { method: "POST" }).catch(() => {});
+          try {
+            const reserved = await reserveDonationCapture(orderId);
+            if (reserved) {
+              const capResult = (await paypalCaptureOrder(orderId)) as Record<string, unknown>;
+              const resp = (capResult?.response as Record<string, unknown>) || capResult;
+              const purchaseUnits = (resp?.purchase_units as Array<Record<string, unknown>>) || [];
+              const payments = purchaseUnits[0]?.payments as Record<string, unknown> | undefined;
+              const captures = (payments?.captures as Array<Record<string, unknown>>) || [];
+              const captureObj = captures[0];
+              const isCompleted =
+                String(resp?.status || "").toUpperCase() === "COMPLETED" ||
+                String(captureObj?.status || "").toUpperCase() === "COMPLETED";
+
+              if (isCompleted && captureObj?.id) {
+                const payer = (resp?.payer as Record<string, unknown>) || undefined;
+                const payerEmail = (payer?.email_address as string) || undefined;
+                const amountObj = captureObj.amount as { value?: string } | undefined;
+                const amountMinor = amountObj?.value ? Math.round(parseFloat(amountObj.value) * 100) : undefined;
+                await completeDonationCapture({
+                  id: orderId,
+                  captureId: captureObj.id as string,
+                  payerEmail,
+                  amountMinor,
+                });
+              } else {
+                await releaseDonationCapture(orderId);
+              }
+            }
+          } catch (captureErr) {
+            await releaseDonationCapture(orderId).catch(() => {});
+            console.error("Auto-capture in webhook failed:", captureErr);
+            return NextResponse.json(
+              { error: "Webhook auto-capture execution failed." },
+              { status: 500 }
+            );
+          }
         }
       }
-      await recordWebhook(eventId, eventType, orderId, "APPROVED");
-      return NextResponse.json({ received: true, eventId, eventType }, { status: 200 });
+      try {
+        const processed = await recordWebhook(eventId, eventType, orderId, "APPROVED");
+        return NextResponse.json({ received: true, eventId, eventType, duplicate: !processed }, { status: 200 });
+      } catch (err) {
+        console.error("Webhook event persist error:", err);
+        return NextResponse.json({ error: "Failed to persist webhook event." }, { status: 500 });
+      }
     }
 
     // 2. Process PayPal Payouts Events
@@ -142,16 +200,26 @@ export async function POST(req: NextRequest) {
       const disbId = senderBatchId || batchId;
 
       if (disbId) {
-        await updateDisbursementStatus({
-          id: disbId,
-          status: "PAID",
-          payoutBatchId: batchId,
-          payoutItemId: itemId,
-        }).catch((err) => console.error("Payout webhook update error:", err));
+        try {
+          await updateDisbursementStatus({
+            id: disbId,
+            status: "PAID",
+            payoutBatchId: batchId,
+            payoutItemId: itemId,
+          });
+        } catch (err) {
+          console.error("Payout webhook update error:", err);
+          return NextResponse.json({ error: "Database error updating payout status." }, { status: 500 });
+        }
       }
 
-      await recordWebhook(eventId, eventType, disbId, "PAID");
-      return NextResponse.json({ received: true, eventId, eventType, status: "PAID" }, { status: 200 });
+      try {
+        const processed = await recordWebhook(eventId, eventType, disbId, "PAID");
+        return NextResponse.json({ received: true, eventId, eventType, status: "PAID", duplicate: !processed }, { status: 200 });
+      } catch (err) {
+        console.error("Webhook event persist error:", err);
+        return NextResponse.json({ error: "Failed to persist webhook event." }, { status: 500 });
+      }
     }
 
     if (

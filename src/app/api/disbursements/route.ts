@@ -64,14 +64,10 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Invalid or tampered approval token." }, { status: 403 });
     }
 
-    const review = storedReview.review as ReviewResult;
-    // Re-run deterministic preflight verification
-    const freshAudit = runPreflight(review.input);
-    if (freshAudit.status !== "READY" || freshAudit.findings.some((f) => f.severity === "block")) {
-      return NextResponse.json(
-        { error: "Preflight audit status is not READY for disbursement approval." },
-        { status: 409 }
-      );
+    // Check campaign exists
+    const campaign = await getCampaignById(campaignId);
+    if (!campaign) {
+      return NextResponse.json({ error: `Campaign ${campaignId} not found.` }, { status: 404 });
     }
 
     // Check vendor exists in registered vetted vendors
@@ -83,10 +79,44 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Check campaign exists
-    const campaign = await getCampaignById(campaignId);
-    if (!campaign) {
-      return NextResponse.json({ error: `Campaign ${campaignId} not found.` }, { status: 404 });
+    const review = storedReview.review as ReviewResult;
+
+    // Merge campaign SOW rate card and available pool ceiling into review input
+    const auditedInput = {
+      ...review.input,
+      sourceTerms: {
+        ...review.input.sourceTerms,
+        rateCard: campaign.sowRateCard || review.input.sourceTerms?.rateCard,
+        sowHash: campaign.sowHash || review.input.sourceTerms?.sowHash,
+      },
+      poCap:
+        campaign.availableMinor !== undefined && campaign.availableMinor > 0
+          ? (campaign.availableMinor / 100).toFixed(2)
+          : review.input.poCap,
+    };
+
+    // Re-run deterministic preflight verification against campaign SOW rate card and pool cap
+    const freshAudit = runPreflight(auditedInput);
+    if (freshAudit.status !== "READY" || freshAudit.findings.some((f) => f.severity === "block")) {
+      const blockReasons = freshAudit.findings
+        .filter((f) => f.severity === "block")
+        .map((f) => f.message)
+        .join("; ");
+      return NextResponse.json(
+        { error: `Preflight SOW/budget audit failed: ${blockReasons}` },
+        { status: 409 }
+      );
+    }
+
+    // Require stored autonomous agent reconciliation approval
+    if (review.agentResult?.status !== "APPROVED") {
+      return NextResponse.json(
+        {
+          error:
+            "Disbursement requires prior autonomous AI reconciliation agent approval (agent status must be APPROVED).",
+        },
+        { status: 409 }
+      );
     }
 
     const amountMinor = freshAudit.totalMinor;

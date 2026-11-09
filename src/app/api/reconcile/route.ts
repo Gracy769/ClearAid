@@ -38,6 +38,7 @@ export async function POST(req: NextRequest) {
       if (campaign) {
         reviewInput = {
           ...reviewInput,
+          campaignId: campaign.id,
           poCap: campaign.availableMinor !== undefined ? (campaign.availableMinor / 100).toFixed(2) : reviewInput.poCap,
           sourceTerms: {
             ...reviewInput.sourceTerms,
@@ -55,6 +56,7 @@ export async function POST(req: NextRequest) {
     });
 
     // Save agent findings and deliberation steps back into the review record
+    // Preserving stored.approval_hash ensures the existing approval token remains valid
     const updatedReview = {
       ...review,
       agentResult: {
@@ -64,11 +66,15 @@ export async function POST(req: NextRequest) {
         summary: agentResult.summary,
       },
     };
-    const newHash = sign(JSON.stringify(updatedReview));
-    await saveReview(reviewId.trim(), updatedReview, newHash);
+    await saveReview(reviewId.trim(), updatedReview, stored.approval_hash);
+
+    const freshApprovalToken = sign(
+      JSON.stringify({ reviewId: reviewId.trim(), reviewHash: stored.approval_hash })
+    );
 
     return NextResponse.json({
       ok: true,
+      approvalToken: freshApprovalToken,
       status: agentResult.status,
       discrepancies: agentResult.discrepancies,
       steps: agentResult.steps,

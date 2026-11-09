@@ -1,17 +1,29 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import {
-  DEFAULT_CAMPAIGNS,
-  DEFAULT_DISBURSEMENTS,
   formatCurrencyMinor,
   getRemainingGrantCapMinor,
   recordDonation,
   recordDisbursement,
 } from "../src/lib/campaigns";
 import { runPreflight } from "../src/lib/preflight";
-import type { ReviewInput } from "../src/lib/types";
+import type { ReviewInput, ReliefCampaign, PublicDisbursementRecord } from "../src/lib/types";
 
 describe("Relief Ready Campaign & Inflow Math", () => {
+  const fixtureCampaign: ReliefCampaign = {
+    id: "CAMP-MED-01",
+    title: "Emergency Trauma Kits & Surgical Field Hospital",
+    category: "Medical",
+    targetMinor: 15000000,
+    raisedMinor: 9240000,
+    disbursedMinor: 4070000,
+    currency: "USD",
+    grantCode: "GRANT-RELIEF-2026-MED01",
+    leadAgency: "Global Emergency Health Corps",
+    disasterZone: "Southern Coastal Cyclone Zone",
+    urgent: true,
+  };
+
   it("formats minor units cleanly into USD currency strings", () => {
     assert.equal(formatCurrencyMinor(100), "$1.00");
     assert.equal(formatCurrencyMinor(4070000), "$40,700.00");
@@ -20,14 +32,13 @@ describe("Relief Ready Campaign & Inflow Math", () => {
   });
 
   it("calculates remaining uncommitted grant pool correctly", () => {
-    const medCamp = DEFAULT_CAMPAIGNS[0];
     // raised $92,400.00 (9240000), disbursed $40,700.00 (4070000)
     // remaining = 5170000 ($51,700.00)
-    assert.equal(getRemainingGrantCapMinor(medCamp), 5170000);
+    assert.equal(getRemainingGrantCapMinor(fixtureCampaign), 5170000);
   });
 
   it("increments campaign raisedMinor on recorded donation without mutating original", () => {
-    const initial = DEFAULT_CAMPAIGNS;
+    const initial = [fixtureCampaign];
     const donationAmountMinor = 5000; // $50.00
     const updated = recordDonation(initial, "CAMP-MED-01", donationAmountMinor);
 
@@ -39,8 +50,8 @@ describe("Relief Ready Campaign & Inflow Math", () => {
   });
 
   it("records disbursement and appends to transparency ledger without drift", () => {
-    const initialCampaigns = DEFAULT_CAMPAIGNS;
-    const initialDisbursements = DEFAULT_DISBURSEMENTS;
+    const initialCampaigns = [fixtureCampaign];
+    const initialDisbursements: PublicDisbursementRecord[] = [];
 
     const { campaigns, disbursements, newRecord } = recordDisbursement(
       initialCampaigns,
@@ -58,7 +69,7 @@ describe("Relief Ready Campaign & Inflow Math", () => {
       }
     );
 
-    assert.equal(disbursements.length, initialDisbursements.length + 1);
+    assert.equal(disbursements.length, 1);
     assert.equal(disbursements[0].paypalInvoiceId, "INV2-TEST-1234-5678");
     assert.equal(disbursements[0].status, "PAID_VIA_PAYPAL");
     assert.ok(newRecord.id.startsWith("DISB-"));
@@ -67,8 +78,7 @@ describe("Relief Ready Campaign & Inflow Math", () => {
   });
 
   it("binds campaign remaining cap to preflight and halts over-budget invoice", () => {
-    const medCamp = DEFAULT_CAMPAIGNS[0];
-    const remainingMinor = getRemainingGrantCapMinor(medCamp); // $51,700.00
+    const remainingMinor = getRemainingGrantCapMinor(fixtureCampaign); // $51,700.00
     const remainingCapFormatted = (remainingMinor / 100).toFixed(2); // "51700.00"
 
     // Valid invoice below remaining cap ($40,700.00 <= $51,700.00)
@@ -76,7 +86,7 @@ describe("Relief Ready Campaign & Inflow Math", () => {
       vendorName: "Apex Cloud Systems",
       buyerName: "Global Emergency Health Corps",
       buyerEmail: "procurement@gehc.org",
-      poNumber: medCamp.grantCode,
+      poNumber: fixtureCampaign.grantCode,
       currency: "USD",
       poCap: remainingCapFormatted,
       items: [

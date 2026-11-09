@@ -127,6 +127,29 @@ describe("Relief Ready Steps 1-4 Verification Suite", () => {
       assert.ok(unauthorized);
       assert.ok(unauthorized.message.includes("is not authorized under the campaign SOW rate card"));
     });
+
+    it("blocks made-up item sharing only one common word with SOW item (tight threshold)", () => {
+      const input: ReviewInput = {
+        vendorName: "Apex Cloud Systems & Studio Lab Inc.",
+        buyerName: "Global Emergency Health Corps",
+        buyerEmail: "procurement@gehc.org",
+        poNumber: "GRANT-RELIEF-2026-MED01",
+        currency: "USD",
+        items: [
+          // "Cloud" is only 1 token shared with "Enterprise Multi-VPC Cloud Architecture"
+          { description: "Personal Cloud Backup Subscription", quantity: "1", unitAmount: "120.00" },
+        ],
+        evidence: [{ document: "Grant-SOW.pdf", quote: "Rate card" }],
+        sourceTerms: {
+          rateCard,
+        },
+      };
+
+      const result = runPreflight(input);
+      assert.equal(result.status, "HOLD");
+      const unauthorized = result.findings.find((f) => f.code.startsWith("unauthorized_item"));
+      assert.ok(unauthorized, "Made-up item with 1 shared token must be rejected as unauthorized");
+    });
   });
 
   describe("Step 1: Real Donation Capture & Idempotency", () => {

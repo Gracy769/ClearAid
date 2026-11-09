@@ -30,13 +30,15 @@ function findMatchingRateCardItem(description: string, rateCard: SOWRateCardItem
     for (const t of sowTokens) {
       if (itemTokens.has(t)) overlap++;
     }
-    const score = overlap / Math.max(sowTokens.length, itemTokens.size);
+    const unionSize = new Set([...itemTokens, ...sowTokens]).size;
+    const score = unionSize > 0 ? overlap / unionSize : 0;
     const normDesc = description.toLowerCase().trim();
     const normSow = sowItem.description.toLowerCase().trim();
     const isSubstring = normDesc.includes(normSow) || normSow.includes(normDesc);
 
-    const finalScore = isSubstring ? Math.max(score, 0.7) : score;
-    if (finalScore > bestScore && finalScore >= 0.25) {
+    const finalScore = isSubstring ? Math.max(score, 0.85) : score;
+    const isQualified = isSubstring || finalScore >= 0.5 || (overlap >= 2 && finalScore >= 0.35);
+    if (isQualified && finalScore > bestScore) {
       bestScore = finalScore;
       bestMatch = sowItem;
     }

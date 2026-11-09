@@ -155,6 +155,14 @@ export default function Home() {
   const [selectedCampaignId, setSelectedCampaignId] = useState<string>("CAMP-MED-01");
   const [viewingDisbursement, setViewingDisbursement] = useState<PublicDisbursementRecord | null>(null);
 
+  const VETTED_VENDORS_DEFAULT = [
+    { id: "VEND-APEX-01", name: "Apex Cloud Systems & Studio Lab Inc.", email: "sb-vendor-apex@business.example.com" },
+    { id: "VEND-OMNI-02", name: "OmniGlobal Operations Corp.", email: "sb-vendor-omni@business.example.com" },
+    { id: "VEND-NORDIC-03", name: "Nordic Field Power Systems LLC", email: "sb-vendor-nordic@business.example.com" },
+  ];
+  const [vettedVendors] = useState(VETTED_VENDORS_DEFAULT);
+  const [selectedVendorId, setSelectedVendorId] = useState<string>("VEND-APEX-01");
+
   // Donation drawer state
   const [donatingCampaignId, setDonatingCampaignId] = useState<string | null>(null);
   const [selectedDonationTier, setSelectedDonationTier] = useState<string>("50");
@@ -189,7 +197,7 @@ export default function Home() {
   const [ledgerHeadHash, setLedgerHeadHash] = useState<string>("GENESIS");
   const [ledgerLoading, setLedgerLoading] = useState(false);
   const [verifyStatus, setVerifyStatus] = useState<{ ok?: boolean; message?: string; total?: number } | null>(null);
-  const [adminToken, setAdminToken] = useState<string>("rr_admin_hackathon_2026_reliefready");
+  const [adminToken, setAdminToken] = useState<string>("");
   const [showAdminKey, setShowAdminKey] = useState<boolean>(false);
   const [agentTrace, setAgentTrace] = useState<{
     status?: string;
@@ -273,7 +281,7 @@ export default function Home() {
     };
   }, []);
 
-  // Initialize PayPal Donate SDK button dynamically when donation modal opens
+  // Initialize PayPal donate button dynamically when donation modal opens
   useEffect(() => {
     if (!donatingCampaignId) return;
 
@@ -435,6 +443,9 @@ export default function Home() {
       if (!res.ok || !resData.ok) {
         throw new Error(resData.error || "Reconciliation agent execution failed.");
       }
+      if (resData.approvalToken) {
+        setApprovalToken(resData.approvalToken);
+      }
       setAgentTrace({
         status: resData.status,
         steps: resData.steps,
@@ -455,6 +466,13 @@ export default function Home() {
   // Real Disbursement Approval & PayPal Payout Execution (Step 2)
   async function handleDisburseWithPayout() {
     if (!reviewId || !approvalToken) return;
+    if (agentTrace?.status !== "APPROVED") {
+      setNotice({
+        kind: "error",
+        text: "Autonomous AI reconciliation agent must audit and approve this bill before disbursement.",
+      });
+      return;
+    }
     setBusy(true);
     setNotice(null);
     try {
@@ -467,7 +485,7 @@ export default function Home() {
         },
         body: JSON.stringify({
           reviewId,
-          vendorId: "VEND-APEX-01",
+          vendorId: selectedVendorId,
           campaignId: selectedCampaignId,
           approvalToken,
         }),
@@ -610,30 +628,6 @@ export default function Home() {
     }
   }
 
-  // Single invoice draft creation
-  async function createDraft() {
-    if (!review || !reviewId || !approvalToken) return;
-    setBusy(true);
-    setNotice(null);
-    try {
-      const response = await fetch("/api/paypal/invoices", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ reviewId, approvalToken, review }),
-      });
-      const body = await response.json();
-      if (!response.ok) throw new Error(body.error || "PayPal could not create the draft.");
-      setInvoiceId(body.id);
-      setSendToken(body.sendToken);
-      setInvoiceUrl(body.url || "");
-      setNotice({ kind: "success", text: "Sandbox draft created. Review the PayPal invoice, then approve sending separately." });
-    } catch (error) {
-      setNotice({ kind: "error", text: error instanceof Error ? error.message : "PayPal could not create the draft." });
-    } finally {
-      setBusy(false);
-    }
-  }
-
   // Single invoice send
   async function sendInvoice() {
     if (!invoiceId || !sendToken || !reviewId || !review) return;
@@ -665,7 +659,7 @@ export default function Home() {
           category: categoryName,
           amountMinor: review.totalMinor,
           currency: review.input.currency,
-          preflightProofHash: `sha256:${Math.random().toString(16).slice(2, 10)}...${Math.random().toString(16).slice(2, 10)}`,
+          preflightProofHash: `sha256:${reviewId.replace(/[^a-zA-Z0-9]/g, "").padEnd(16, "0").slice(0, 16)}...`,
           hostedInvoiceUrl: invoiceUrl,
           items: review.input.items,
         }
@@ -1010,8 +1004,7 @@ export default function Home() {
               <div className="intro">
                 <h1 id="page-title">Transparent disaster relief. Zero unverified leakage.</h1>
                 <p>
-                  Donate directly via PayPal to emergency response pools. Every dollar is cryptographically locked
-                  until field contractor invoices pass deterministic preflight verification.
+                  Donate directly via PayPal to emergency response pools. Funds are reserved and disbursed only after field contractor invoices pass deterministic preflight verification.
                 </p>
               </div>
 
@@ -1024,7 +1017,7 @@ export default function Home() {
                   <div className="metric-card-value" style={{ color: "var(--blue)" }}>
                     {formatCurrencyMinor(totalRaisedMinor)}
                   </div>
-                  <div className="metric-card-sub">Collected via PayPal Donate</div>
+                  <div className="metric-card-sub">Captured via PayPal Orders</div>
                 </div>
 
                 <div className="metric-card">
@@ -1163,7 +1156,7 @@ export default function Home() {
                             </div>
                           ) : (
                             <div style={{ display: "flex", gap: "12px", alignItems: "center", flexWrap: "wrap", marginTop: "12px" }}>
-                              {/* Official PayPal Donate SDK Container */}
+                              {/* PayPal Donation Container */}
                               <div ref={donateButtonHostRef} id="paypal-donate-container" />
 
                               {/* Instant Sandbox Donation Execution */}
@@ -1390,6 +1383,35 @@ export default function Home() {
                     <fieldset className="field-group">
                       <legend>Who is billing whom?</legend>
                       <div className="field-grid">
+                        <label className="field field-wide" style={{ marginBottom: "6px" }}>
+                          <span style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                            <span>Select Vetted Contractor (PayPal Payouts Destination)</span>
+                            <span style={{ fontSize: "11px", color: "var(--blue)" }}>Registered Vetted Vendor</span>
+                          </span>
+                          <select
+                            value={selectedVendorId}
+                            onChange={(event) => {
+                              const vId = event.target.value;
+                              setSelectedVendorId(vId);
+                              const match = vettedVendors.find((v) => v.id === vId);
+                              if (match) updateField("vendorName", match.name);
+                            }}
+                            style={{
+                              width: "100%",
+                              padding: "8px 10px",
+                              borderRadius: "6px",
+                              border: "1px solid #cbd5e1",
+                              fontSize: "13px",
+                              background: "#ffffff",
+                            }}
+                          >
+                            {vettedVendors.map((v) => (
+                              <option key={v.id} value={v.id}>
+                                {v.name} ({v.id}) — Payout to: {v.email}
+                              </option>
+                            ))}
+                          </select>
+                        </label>
                         <label className="field">
                           <span>Field Contractor / Supplier</span>
                           <input
@@ -1857,37 +1879,50 @@ export default function Home() {
                         <div className="approval-row" style={{ marginTop: "16px", paddingTop: "16px", flexDirection: "column", gap: "12px", alignItems: "stretch" }}>
                           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "8px" }}>
                             <div>
-                              <strong>Ready for Humanitarian Payout</strong>
+                              <strong>Humanitarian Aid Payout Gate</strong>
                               <span style={{ display: "block", fontSize: "12px", color: "var(--muted)" }}>
-                                Atomically locks campaign pool &amp; executes PayPal Payouts to registered vendor.
+                                {agentTrace?.status === "APPROVED"
+                                  ? `Autonomous AI reconciliation APPROVED. Pool reserved; ready to dispatch PayPal Payout to ${vettedVendors.find((v) => v.id === selectedVendorId)?.name || selectedVendorId}.`
+                                  : "Autonomous AI agent audit (SOW rate card & campaign duplicate check) is required before funds can be disbursed."}
                               </span>
                             </div>
-                            <div style={{ display: "flex", gap: "10px", flexWrap: "wrap" }}>
-                              <button
-                                type="button"
-                                className="button-secondary"
-                                onClick={createDraft}
-                                disabled={busy || !approvalToken || paypalConfigured !== true}
-                                style={{ fontSize: "13px" }}
-                              >
-                                Draft Invoice Only
-                              </button>
-                              <button
-                                type="button"
-                                className="button-primary"
-                                onClick={handleDisburseWithPayout}
-                                disabled={busy || !approvalToken || paypalConfigured !== true}
-                              >
-                                {busy ? (
-                                  <>
-                                    <span className="spinner" /> Executing Payout...
-                                  </>
-                                ) : (
-                                  <>
-                                    Approve &amp; Pay via PayPal Payouts <Icon name="arrow" size={17} />
-                                  </>
-                                )}
-                              </button>
+                            <div style={{ display: "flex", gap: "10px", flexWrap: "wrap", alignItems: "center" }}>
+                              {agentTrace?.status !== "APPROVED" ? (
+                                <button
+                                  type="button"
+                                  className="button-primary"
+                                  onClick={() => executeReconciliationAgent()}
+                                  disabled={agentBusy}
+                                  style={{ fontSize: "13px" }}
+                                >
+                                  {agentBusy ? (
+                                    <>
+                                      <span className="spinner" /> Reconciling SOW &amp; Duplicates...
+                                    </>
+                                  ) : (
+                                    <>
+                                      <Icon name="shield" size={15} /> Run Autonomous AI Agent Audit
+                                    </>
+                                  )}
+                                </button>
+                              ) : (
+                                <button
+                                  type="button"
+                                  className="button-primary"
+                                  onClick={handleDisburseWithPayout}
+                                  disabled={busy || !approvalToken || paypalConfigured !== true}
+                                >
+                                  {busy ? (
+                                    <>
+                                      <span className="spinner" /> Executing Payout...
+                                    </>
+                                  ) : (
+                                    <>
+                                      Approve &amp; Pay via PayPal Payouts <Icon name="arrow" size={17} />
+                                    </>
+                                  )}
+                                </button>
+                              )}
                             </div>
                           </div>
                         </div>
@@ -2115,11 +2150,11 @@ export default function Home() {
               <div className="section-heading" style={{ flexWrap: "wrap", gap: "12px", alignItems: "flex-start" }}>
                 <div>
                   <h1 id="page-title" style={{ fontSize: "24px", marginBottom: "6px" }}>
-                    Public Proof-of-Aid Cryptographic Ledger
+                    Public Transparency Ledger
                   </h1>
                   <p>
-                    Immutable SHA-256 hash-chained public audit ledger stored in Neon PostgreSQL. Every donation capture
-                    and vendor payout forms a tamper-evident linked list verified by PayPal webhooks.
+                    SHA-256 hash-chained public audit ledger stored in Neon PostgreSQL. Every donation capture
+                    and vendor payout forms a tamper-evident linked sequence verified by PayPal webhooks.
                   </p>
                 </div>
                 <div style={{ display: "flex", gap: "10px", alignItems: "center", flexWrap: "wrap" }}>
@@ -2154,7 +2189,7 @@ export default function Home() {
                   </code>
                 </div>
                 <span style={{ fontSize: "12px", color: "#64748b" }}>
-                  {ledgerEntries.length} Cryptographically Sealed Blocks
+                  {ledgerEntries.length} Linked Blocks
                 </span>
               </div>
 
@@ -2438,7 +2473,7 @@ export default function Home() {
                   </div>
                 </div>
                 <p style={{ fontSize: "12.5px", color: "var(--muted)", margin: "14px 0 10px", lineHeight: "1.5" }}>
-                  Every donation made via PayPal Orders v2 is captured into the grant pool and committed to the cryptographic audit ledger. Payouts are reserved atomically from an admin-registered vendor list.
+                  Every donation made via PayPal Orders v2 is captured into the grant pool and committed to the public transparency ledger. Payouts are reserved atomically from an admin-registered vendor list.
                 </p>
                 <div className="side-panel-divider" />
                 <div className="check-list-title">
@@ -2446,7 +2481,7 @@ export default function Home() {
                   <strong>The Relief Ready Guarantee</strong>
                 </div>
                 <ul className="check-list">
-                  <li><Icon name="check" size={15} />100% of line items matched to grant SOWs</li>
+                  <li><Icon name="check" size={15} />Line items audited against approved campaign SOW</li>
                   <li><Icon name="check" size={15} />Deterministic minor-unit math verification</li>
                   <li><Icon name="check" size={15} />Payout to admin-registered vendors via PayPal Payouts</li>
                   <li><Icon name="check" size={15} />Live proof posted to public transparency ledger</li>

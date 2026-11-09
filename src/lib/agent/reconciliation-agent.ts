@@ -4,6 +4,7 @@ import { getGeminiModel } from "@/lib/ai";
 import { paypalCreateDraft, paypalTools } from "@/lib/paypal";
 import { toPayPalInvoiceDraft } from "@/lib/paypal-adapter";
 import { runPreflight } from "@/lib/preflight";
+import { getDisbursements } from "@/lib/db";
 import type { ReviewInput, ReviewResult } from "@/lib/types";
 
 export type ReconciliationStatus = "APPROVED" | "DISCREPANCY_FOUND" | "DUPLICATE_DETECTED";
@@ -204,6 +205,52 @@ export async function runReconciliationAgent(
           isError: true,
           error: err instanceof Error ? err.message : String(err),
         };
+      }
+    },
+  });
+
+  // Tool 1b: search_disbursements (Campaign Pool Duplicate Check Action)
+  const searchDisbursementsTool = tool({
+    description: "Search existing disbursements in the relief campaign pool by PO reference or vendor to check for duplicate payouts or double-billing.",
+    parameters: z.object({
+      campaignId: z.string().optional().describe("Campaign ID to check."),
+      reference: z.string().optional().describe("PO reference number."),
+    }),
+    execute: async (args, options) => {
+      hasExecutedDuplicateSearch = true;
+      try {
+        let rawResult: unknown;
+        if (customTools?.search_disbursements?.execute) {
+          rawResult = await customTools.search_disbursements.execute(args, options);
+        } else {
+          const campId = (args?.campaignId || (reviewInput as unknown as { campaignId?: string }).campaignId || "").trim();
+          const list = await getDisbursements(campId || undefined);
+          const targetRef = (args?.reference || reviewInput.poNumber || "").trim().toLowerCase();
+          rawResult = {
+            disbursements: list.filter((d) =>
+              (targetRef && (d.id.toLowerCase().includes(targetRef) || d.reviewId.toLowerCase().includes(targetRef)))
+            ),
+          };
+        }
+
+        const rawObj = rawResult as Record<string, unknown> | undefined;
+        const list = Array.isArray(rawObj?.disbursements) ? rawObj.disbursements : [];
+        if (list.length > 0) {
+          hasDuplicate = true;
+          hasBlockingDiscrepancy = true;
+          discrepancies.push({
+            category: "DUPLICATE_BILLING",
+            field: "poNumber",
+            severity: "BLOCKING",
+            description: `Active duplicate disbursement found in campaign pool matching reference '${args?.reference || reviewInput.poNumber}'.`,
+            reason: "Double billing prevention policy.",
+            remedyRecommendation: "Reject duplicate disbursement request.",
+          });
+          return { duplicateFound: true, count: list.length, items: list };
+        }
+        return { duplicateFound: false, count: 0 };
+      } catch (err) {
+        return { error: err instanceof Error ? err.message : String(err) };
       }
     },
   });
@@ -714,17 +761,76 @@ export async function runReconciliationAgent(
     },
   });
 
-  const systemPrompt = `You are an Autonomous B2B Accounts Payable (AP) Reconciliation Specialist & Financial Auditor on the PayPal platform.
-Your mandate is to protect merchants and buyers from billing discrepancies, duplicate invoices, and contract violations before any funds are requested or committed.
+  // Tool 4b: prepare_approval (Verified Disbursement Approval Preparation)
+  const prepareApprovalTool = tool({
+    description: "Prepare and certify verified disbursement approval once duplicate checks and SOW rate audits are 100% clean.",
+    parameters: z.object({
+      note: z.string().optional().describe("Audit approval summary notes."),
+    }),
+    execute: async (args) => {
+      const isSearchRequired =
+        !customTools ||
+        customTools.search_disbursements !== undefined ||
+        customTools.search_invoicing !== undefined;
+      if (isSearchRequired && !hasExecutedDuplicateSearch) {
+        hasBlockingDiscrepancy = true;
+        discrepancies.push({
+          category: "OTHER",
+          field: "search_disbursements",
+          severity: "BLOCKING",
+          description: "search_disbursements must be executed before preparing disbursement approval.",
+          reason: "Mandatory duplicate check precondition violated.",
+          remedyRecommendation: "Execute search_disbursements prior to prepare_approval.",
+        });
+        return {
+          isError: true,
+          blocked: true,
+          error: "GATE_REJECTED: Duplicate check must be executed before approval.",
+        };
+      }
+
+      const isBlocked =
+        hasDuplicate ||
+        hasBlockingDiscrepancy ||
+        discrepancies.some((d) => /block|critical/i.test(d.severity)) ||
+        duplicateInvoices.length > 0;
+
+      if (isBlocked) {
+        return {
+          isError: true,
+          blocked: true,
+          error: "GATE_REJECTED: Approval is strictly forbidden when duplicate billings or SOW discrepancies exist.",
+        };
+      }
+
+      if (preflightBaseline.status !== "READY") {
+        return {
+          isError: true,
+          blocked: true,
+          error: `GATE_REJECTED: Preflight review status is '${preflightBaseline.status}'. Approval requires READY.`,
+        };
+      }
+
+      return {
+        approved: true,
+        status: "APPROVED",
+        totalMinor: preflightBaseline.totalMinor,
+        note: args?.note || "Reconciliation clean; approved for disbursement.",
+      };
+    },
+  });
+
+  const systemPrompt = `You are an Autonomous Humanitarian Aid AP Reconciliation Specialist & Financial Auditor on the Relief Ready platform.
+Your mandate is to protect donor relief pools from billing discrepancies, duplicate disbursements, inflated rates, and unauthorized SOW line items.
 
 Follow this strict multi-step deliberation procedure:
-1. DUPLICATE CHECK: Call 'search_invoicing' using resource_type "invoice" and invoice_filters.reference set to "${reviewInput.poNumber || ""}".
-   If any invoice exists with status other than 'CANCELLED' (e.g. 'DRAFT', 'SENT', 'PAID', 'SCHEDULED'), call 'record_discrepancy' with category "DUPLICATE_BILLING", severity "BLOCKING", and DO NOT create an invoice.
-2. PREFLIGHT AUDIT: Call 'audit_po_terms' to verify integer minor math, line items, and PO cap compliance.
-3. INVOICE CREATION GATE:
-   - If ANY blocking discrepancies or active duplicate invoices exist, DO NOT call 'create_invoice'.
-   - If and ONLY if all checks are completely clean, call 'create_invoice' to prepare a draft on PayPal sandbox.
-4. SYNTHESIS: Provide a clear reconciliation summary. Draft invoice creation is non-destructive; sending the invoice requires explicit human merchant authorization.`;
+1. DUPLICATE CHECK: Call 'search_disbursements' (or 'search_invoicing') using the PO reference or campaign ID.
+   If any active duplicate exists, call 'record_discrepancy' with category "DUPLICATE_BILLING", severity "BLOCKING", and DO NOT approve.
+2. PREFLIGHT AUDIT: Call 'audit_po_terms' to verify integer minor math, line items, SOW rate card compliance, and campaign pool cap.
+3. APPROVAL GATE:
+   - If ANY blocking discrepancies or duplicate records exist, DO NOT approve or create invoice.
+   - If and ONLY if all checks are completely clean, call 'prepare_approval' (or 'create_invoice') to verify the disbursement.
+4. SYNTHESIS: Provide a clear reconciliation summary.`;
 
   const userPrompt = `Reconcile the following invoice request against Purchase Order terms:
 PO Reference: ${reviewInput.poNumber || "N/A"}
@@ -742,6 +848,8 @@ Additional Instructions: ${input.userInstruction || "Verify contract terms and p
   const response = await generateText({
     model,
     tools: {
+      search_disbursements: searchDisbursementsTool,
+      prepare_approval: prepareApprovalTool,
       search_invoicing: searchInvoicingTool,
       audit_po_terms: auditPoTermsTool,
       record_discrepancy: recordDiscrepancyTool,
@@ -778,6 +886,15 @@ Additional Instructions: ${input.userInstruction || "Verify contract terms and p
           const payerView = links.find((l) => l.rel === "payer-view")?.href;
           if (payerView) {
             invoiceUrl = String(payerView);
+          }
+        }
+      }
+      if (tr.toolName === "search_disbursements") {
+        hasExecutedDuplicateSearch = true;
+        if (typeof tr.result === "object" && tr.result !== null) {
+          const res = tr.result as Record<string, unknown>;
+          if (res.duplicateFound) {
+            hasDuplicate = true;
           }
         }
       }

@@ -201,13 +201,6 @@ const SEED_VENDORS = [
   { id: "VEND-NORDIC-03", name: "Nordic Field Power Systems LLC", payout_email: "sb-vendor-nordic@business.example.com", registered_by: "ADMIN_SYSTEM" },
 ];
 
-// Initial Institutional Seed Grants ($50,000 each = 5,000,000 minor)
-const SEED_INITIAL_DONATIONS = [
-  { id: "SEED-GRANT-MED01", campaign_id: "CAMP-MED-01", amount_minor: 5000000n, payer_email: "institutional-donor@globalaid.org" },
-  { id: "SEED-GRANT-WTR02", campaign_id: "CAMP-WATER-02", amount_minor: 5000000n, payer_email: "institutional-donor@globalaid.org" },
-  { id: "SEED-GRANT-SHL03", campaign_id: "CAMP-SHELTER-03", amount_minor: 5000000n, payer_email: "institutional-donor@globalaid.org" },
-];
-
 // Initialize memory seed cache
 export function resetMemorySeed() {
   memoryCampaigns.clear();
@@ -326,32 +319,6 @@ export async function ensureSchema() {
           VALUES (${v.id}, ${v.name}, ${v.payout_email}, 'ACTIVE', ${v.registered_by})
           ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name, payout_email = EXCLUDED.payout_email
         `;
-      }
-
-      // 5. Check if ledger is empty, seed initial verified institutional grants
-      const existingLedger = await sql`SELECT count(*)::int AS count FROM ledger_entries`;
-      if (existingLedger[0]?.count === 0) {
-        for (const seedDon of SEED_INITIAL_DONATIONS) {
-          await sql`
-            INSERT INTO donations (id, campaign_id, amount_minor, currency, status, capture_id, payer_email)
-            VALUES (${seedDon.id}, ${seedDon.campaign_id}, ${seedDon.amount_minor}, 'USD', 'COMPLETED', ${seedDon.id + '_CAP'}, ${seedDon.payer_email})
-            ON CONFLICT (id) DO NOTHING
-          `;
-          await appendLedgerInternal(
-            sql,
-            "DONATION_COMPLETED",
-            seedDon.id,
-            {
-              orderId: seedDon.id,
-              campaignId: seedDon.campaign_id,
-              amountMinor: Number(seedDon.amount_minor),
-              captureId: seedDon.id + '_CAP',
-              payerEmail: seedDon.payer_email,
-              type: "INSTITUTIONAL_SEED_GRANT",
-            },
-            seedDon.campaign_id
-          );
-        }
       }
     })().catch((error) => {
       schemaReady = undefined;

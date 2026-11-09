@@ -85,18 +85,54 @@ export async function POST(
     const captures = (payments?.captures as Array<Record<string, unknown>>) || [];
     const captureObj = captures[0];
 
-    const captureId =
-      (captureObj?.id as string) ||
-      (result?.captureId as string) ||
-      (result?.id as string) ||
-      `CAP-${orderId.slice(0, 8)}`;
+    const isCompleted =
+      String(resp?.status || "").toUpperCase() === "COMPLETED" ||
+      String(captureObj?.status || "").toUpperCase() === "COMPLETED";
+
+    if (!isCompleted) {
+      await releaseDonationCapture(orderId);
+      reserved = false;
+      return NextResponse.json(
+        {
+          error: `PayPal capture status is '${captureObj?.status || resp?.status || "UNKNOWN"}'. Only COMPLETED captures can be settled.`,
+        },
+        { status: 409 }
+      );
+    }
+
+    const captureId = (captureObj?.id as string) || (resp?.id as string);
+    if (!captureId || captureId.startsWith("CAP-")) {
+      await releaseDonationCapture(orderId);
+      reserved = false;
+      return NextResponse.json(
+        { error: "No verified PayPal capture ID returned from PayPal." },
+        { status: 502 }
+      );
+    }
 
     const payer = (resp?.payer as Record<string, unknown>) || undefined;
     const payerEmail = (payer?.email_address as string) || undefined;
 
     const amountObj = captureObj?.amount as { value?: string } | undefined;
     const capturedAmountStr = amountObj?.value;
-    const amountMinor = capturedAmountStr ? Math.round(parseFloat(capturedAmountStr) * 100) : undefined;
+    if (!capturedAmountStr) {
+      await releaseDonationCapture(orderId);
+      reserved = false;
+      return NextResponse.json(
+        { error: "No capture amount returned from PayPal." },
+        { status: 502 }
+      );
+    }
+
+    const amountMinor = Math.round(parseFloat(capturedAmountStr) * 100);
+    if (!Number.isSafeInteger(amountMinor) || amountMinor <= 0) {
+      await releaseDonationCapture(orderId);
+      reserved = false;
+      return NextResponse.json(
+        { error: "Invalid capture amount returned from PayPal." },
+        { status: 502 }
+      );
+    }
 
     const completed = await completeDonationCapture({
       id: orderId,
