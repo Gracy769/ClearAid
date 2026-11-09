@@ -144,6 +144,21 @@ const SEED_RATE_CARDS: Record<string, SOWRateCardItem[]> = {
     { description: "15kVA Whisper-Quiet Diesel Generators & Panels", maxUnitRate: "4700.00", maxQuantity: 4 },
     { description: "Insulated Cold-Weather Survival Tents (10-Person)", maxUnitRate: "850.00", maxQuantity: 20 },
   ],
+  "CAMP-PEDIATRIC-04": [
+    { description: "Mobile Pediatric Vaccine & Cold-Chain Coolers", maxUnitRate: "650.00", maxQuantity: 25 },
+    { description: "Therapeutic Infant Nutrition Rations (Box of 100)", maxUnitRate: "120.00", maxQuantity: 80 },
+    { description: "Pediatric Oxygen Concentrator & Pulse Oximeters", maxUnitRate: "2400.00", maxQuantity: 6 },
+  ],
+  "CAMP-RESCUE-05": [
+    { description: "Thermal Imaging Search & Rescue Drones", maxUnitRate: "4200.00", maxQuantity: 4 },
+    { description: "Acoustic Life Locator Listening Sets", maxUnitRate: "1850.00", maxQuantity: 8 },
+    { description: "Structural Collapse Hydraulic Shoring Kits", maxUnitRate: "3100.00", maxQuantity: 5 },
+  ],
+  "CAMP-FOOD-06": [
+    { description: "Mobile Diesel Field Bakery Oven Modules", maxUnitRate: "5500.00", maxQuantity: 3 },
+    { description: "Fortified Flour & High-Protein Grain Metric Ton Pallets", maxUnitRate: "950.00", maxQuantity: 30 },
+    { description: "Clean Fuel Cooking Stoves (Pallet of 50)", maxUnitRate: "1250.00", maxQuantity: 15 },
+  ],
 };
 
 const SEED_CAMPAIGNS: ReliefCampaign[] = [
@@ -195,12 +210,63 @@ const SEED_CAMPAIGNS: ReliefCampaign[] = [
     sowRateCard: SEED_RATE_CARDS["CAMP-SHELTER-03"],
     sowHash: sha256Hex(canonicalJson(SEED_RATE_CARDS["CAMP-SHELTER-03"])),
   },
+  {
+    id: "CAMP-PEDIATRIC-04",
+    title: "Mobile Pediatric Intensive Care & Infant Nutrition Units",
+    subtitle: "Cold-chain vaccine refrigerators, therapeutic malnutrition rations, and pediatric emergency resuscitation skids.",
+    category: "Pediatric & Nutrition",
+    targetMinor: 9500000, // $95,000.00
+    raisedMinor: 0,
+    disbursedMinor: 0,
+    currency: "USD",
+    grantCode: "GRANT-RELIEF-2026-PED04",
+    leadAgency: "SaveCare Children Emergency",
+    disasterZone: "Sub-Saharan Drought Displacement Corridor",
+    urgent: true,
+    sowRateCard: SEED_RATE_CARDS["CAMP-PEDIATRIC-04"],
+    sowHash: sha256Hex(canonicalJson(SEED_RATE_CARDS["CAMP-PEDIATRIC-04"])),
+  },
+  {
+    id: "CAMP-RESCUE-05",
+    title: "Disaster Search & Rescue Drones & Seismic Sensors",
+    subtitle: "Thermal imaging autonomous search drones, acoustic life locator listening sets, and hydraulic rubble shoring kits.",
+    category: "Search & Rescue",
+    targetMinor: 11000000, // $110,000.00
+    raisedMinor: 0,
+    disbursedMinor: 0,
+    currency: "USD",
+    grantCode: "GRANT-RELIEF-2026-SAR05",
+    leadAgency: "AeroRelief First Responders",
+    disasterZone: "Tectonic Fault Collapse Zone (North)",
+    urgent: true,
+    sowRateCard: SEED_RATE_CARDS["CAMP-RESCUE-05"],
+    sowHash: sha256Hex(canonicalJson(SEED_RATE_CARDS["CAMP-RESCUE-05"])),
+  },
+  {
+    id: "CAMP-FOOD-06",
+    title: "Emergency Field Bakeries & Bulk Grain Distribution Rigs",
+    subtitle: "Trailer-mounted mobile diesel bakery modules, high-protein flour rations, and clean cooking distribution hubs.",
+    category: "Food Logistics",
+    targetMinor: 14000000, // $140,000.00
+    raisedMinor: 0,
+    disbursedMinor: 0,
+    currency: "USD",
+    grantCode: "GRANT-RELIEF-2026-FOD06",
+    leadAgency: "Global Food Action Network",
+    disasterZone: "Riverine Flood & Harvest Destruction Basin",
+    urgent: false,
+    sowRateCard: SEED_RATE_CARDS["CAMP-FOOD-06"],
+    sowHash: sha256Hex(canonicalJson(SEED_RATE_CARDS["CAMP-FOOD-06"])),
+  },
 ];
 
 const SEED_VENDORS = [
   { id: "VEND-APEX-01", name: "Apex Cloud Systems & Studio Lab Inc.", payout_email: "sb-qb7vt34522927@personal.example.com", registered_by: "ADMIN_SYSTEM" },
   { id: "VEND-OMNI-02", name: "OmniGlobal Operations Corp.", payout_email: "sb-vendor-omni@business.example.com", registered_by: "ADMIN_SYSTEM" },
   { id: "VEND-NORDIC-03", name: "Nordic Field Power Systems LLC", payout_email: "sb-vendor-nordic@business.example.com", registered_by: "ADMIN_SYSTEM" },
+  { id: "VEND-BIOMED-04", name: "BioMed Global Relief Supply Ltd", payout_email: "sb-vendor-biomed@business.example.com", registered_by: "ADMIN_SYSTEM" },
+  { id: "VEND-AEROTECH-05", name: "AeroTech Search & Rescue Systems", payout_email: "sb-vendor-aerotech@business.example.com", registered_by: "ADMIN_SYSTEM" },
+  { id: "VEND-TERRAGRAIN-06", name: "TerraGrain Field Logistics Int.", payout_email: "sb-vendor-terragrain@business.example.com", registered_by: "ADMIN_SYSTEM" },
 ];
 
 // Initialize memory seed cache

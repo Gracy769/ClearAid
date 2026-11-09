@@ -44,6 +44,48 @@ export const DEFAULT_CAMPAIGNS: ReliefCampaign[] = [
     disasterZone: "Alpine Earthquake Fault Sector",
     urgent: true,
   },
+  {
+    id: "CAMP-PEDIATRIC-04",
+    title: "Mobile Pediatric Intensive Care & Infant Nutrition Units",
+    subtitle: "Cold-chain vaccine refrigerators, therapeutic malnutrition rations, and pediatric emergency resuscitation skids.",
+    category: "Pediatric & Nutrition",
+    targetMinor: 9500000, // $95,000.00
+    raisedMinor: 0,
+    disbursedMinor: 0,
+    currency: "USD",
+    grantCode: "GRANT-RELIEF-2026-PED04",
+    leadAgency: "SaveCare Children Emergency",
+    disasterZone: "Sub-Saharan Drought Displacement Corridor",
+    urgent: true,
+  },
+  {
+    id: "CAMP-RESCUE-05",
+    title: "Disaster Search & Rescue Drones & Seismic Sensors",
+    subtitle: "Thermal imaging autonomous search drones, acoustic life locator listening sets, and hydraulic rubble shoring kits.",
+    category: "Search & Rescue",
+    targetMinor: 11000000, // $110,000.00
+    raisedMinor: 0,
+    disbursedMinor: 0,
+    currency: "USD",
+    grantCode: "GRANT-RELIEF-2026-SAR05",
+    leadAgency: "AeroRelief First Responders",
+    disasterZone: "Tectonic Fault Collapse Zone (North)",
+    urgent: true,
+  },
+  {
+    id: "CAMP-FOOD-06",
+    title: "Emergency Field Bakeries & Bulk Grain Distribution Rigs",
+    subtitle: "Trailer-mounted mobile diesel bakery modules, high-protein flour rations, and clean cooking distribution hubs.",
+    category: "Food Logistics",
+    targetMinor: 14000000, // $140,000.00
+    raisedMinor: 0,
+    disbursedMinor: 0,
+    currency: "USD",
+    grantCode: "GRANT-RELIEF-2026-FOD06",
+    leadAgency: "Global Food Action Network",
+    disasterZone: "Riverine Flood & Harvest Destruction Basin",
+    urgent: false,
+  },
 ];
 
 export const DEFAULT_DISBURSEMENTS: PublicDisbursementRecord[] = [];

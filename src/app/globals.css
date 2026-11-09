@@ -48,6 +48,20 @@ body {
 
 button, input, select { font: inherit; }
 button { color: inherit; }
+select {
+  font-family: inherit;
+  font-size: 14px !important;
+  color: #0f172a !important;
+  background-color: #ffffff !important;
+}
+select option {
+  font-family: inherit;
+  font-size: 14px !important;
+  color: #0f172a !important;
+  background-color: #ffffff !important;
+  padding: 8px 12px !important;
+  line-height: 1.4 !important;
+}
 button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible, label:has(input:focus-visible) {
   outline: 3px solid rgb(0 87 255 / 32%);
   outline-offset: 3px;
@@ -130,7 +144,23 @@ input, select { caret-color: var(--blue); }
 .input-prefix > span, .rate-input > span { flex: 0 0 auto; padding-left: 11px; color: #63738a; font-family: var(--font-geist-mono), Consolas, monospace; font-size: 11px; font-weight: 550; }
 .input-prefix input, .rate-input input { height: 100%; min-width: 0; flex: 1; padding: 0 11px 0 8px; border: 0; border-radius: inherit; outline: none; background: transparent; color: var(--ink); font-variant-numeric: tabular-nums; }
 .input-prefix input:focus, .rate-input input:focus { outline: 0; }
-.field select { width: 100%; height: 44px; padding: 0 34px 0 12px; border: 1px solid #cbd5e3; border-radius: var(--radius-sm); background-color: #fff; color: var(--ink); }
+.field select {
+  width: 100%;
+  height: 46px;
+  padding: 0 34px 0 14px;
+  border: 1px solid #cbd5e3;
+  border-radius: var(--radius-sm);
+  background-color: #fff;
+  color: #0f172a;
+  font-size: 14px;
+  font-weight: 500;
+}
+.field select option {
+  font-size: 14px;
+  padding: 10px 14px;
+  color: #0f172a;
+  background-color: #ffffff;
+}
 
 .line-items-head, .line-item { display: grid; grid-template-columns: minmax(180px, 1fr) 78px minmax(130px, 166px) 34px; align-items: center; gap: 10px; }
 .line-items-head { margin-bottom: 8px; color: #687990; font-size: 11px; font-weight: 630; }
@@ -672,15 +702,22 @@ input, select { caret-color: var(--blue); }
 }
 .campaign-quick-selector select {
   flex: 1;
-  min-width: 220px;
-  max-width: 440px;
-  height: 40px;
-  border: 1px solid #93c5fd;
+  min-width: 260px;
+  max-width: 650px;
+  height: 44px;
+  border: 1.5px solid #93c5fd;
   border-radius: 6px;
-  padding: 0 12px;
+  padding: 0 14px;
   font-weight: 600;
-  color: var(--ink);
+  font-size: 14px;
+  color: #0f172a;
   background: #ffffff;
+}
+.campaign-quick-selector select option {
+  font-size: 14px;
+  padding: 10px 14px;
+  color: #0f172a;
+  background-color: #ffffff;
 }
 
 /* ==========================================================================
@@ -1249,6 +1286,32 @@ input, select { caret-color: var(--blue); }
 @media (max-width: 768px) {
   .audit-grid-2 { grid-template-columns: minmax(0, 1fr); }
   .scenario-grid { grid-template-columns: minmax(0, 1fr); }
+}
+
+@media print {
+  body * {
+    visibility: hidden;
+  }
+  .audit-modal-backdrop, .audit-modal-backdrop * {
+    visibility: visible;
+  }
+  .audit-modal-backdrop {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 100%;
+    background: transparent !important;
+    padding: 0 !important;
+  }
+  .audit-modal {
+    box-shadow: none !important;
+    border: none !important;
+    max-width: 100% !important;
+    width: 100% !important;
+  }
+  .audit-modal-actions, .icon-button {
+    display: none !important;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {
