@@ -87,6 +87,15 @@ export function runPreflight(input: ReviewInput): ReviewResult {
     else if (totalMinor > cap) findings.push({ code: "po_cap_exceeded", severity: "block", message: "Invoice total exceeds the stated PO cap." });
   }
 
+  // Duplicate Invoice Detection
+  if (input.duplicateMatch) {
+    findings.push({
+      code: "duplicate_invoice_detected",
+      severity: "block",
+      message: `Duplicate invoice detected: PO #${input.duplicateMatch.poNumber} has already been disbursed in record #${input.duplicateMatch.existingId} ($${(input.duplicateMatch.amountMinor / 100).toFixed(2)}). Multiple disbursements against identical deliverable are prohibited.`,
+    });
+  }
+
   // SOW Rate Card Validation (Step 3)
   if (input.sourceTerms?.rateCard && input.sourceTerms.rateCard.length > 0) {
     input.items.forEach((item, index) => {

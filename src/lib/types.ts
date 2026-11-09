@@ -29,6 +29,11 @@ export type ReviewInput = {
   documentHash?: string;
   sourceTerms?: SourceTerms;
   campaignId?: string;
+  duplicateMatch?: {
+    existingId: string;
+    poNumber: string;
+    amountMinor: number;
+  };
 };
 export type Finding = { code: string; severity: "block" | "warning"; message: string; refs?: SourceRef[] };
 export type ReviewResult = {

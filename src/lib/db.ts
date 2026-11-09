@@ -326,6 +326,59 @@ export async function ensureSchema() {
           ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name, payout_email = EXCLUDED.payout_email
         `;
       }
+
+      // 5. Seed Initial Pool Donations for Demo Scenarios
+      await sql`
+        INSERT INTO donations (id, campaign_id, amount_minor, currency, status, capture_id, payer_email)
+        VALUES
+          ('DON-SEED-MED-01', 'CAMP-MED-01', 5000000, 'USD', 'COMPLETED', 'CAPTURE-SEED-MED', 'donor-relief-fund@foundation.example.org'),
+          ('DON-SEED-WTR-02', 'CAMP-WATER-02', 3000000, 'USD', 'COMPLETED', 'CAPTURE-SEED-WTR', 'water-foundation@global.example.org')
+        ON CONFLICT (id) DO NOTHING
+      `;
+
+      // 6. Seed Historical Review & Settled Disbursement (for Duplicate Detection Demo)
+      await sql`
+        INSERT INTO invoice_reviews (id, review, approval_hash, created_at)
+        VALUES (
+          'REV-MED-HISTORIC-01',
+          ${JSON.stringify({
+            status: "READY",
+            input: {
+              vendorName: "Apex Cloud Systems & Studio Lab Inc.",
+              buyerName: "Global Emergency Health Corps",
+              buyerEmail: "procurement@gehc.org",
+              poNumber: "GRANT-RELIEF-2026-MED01-HISTORIC",
+              currency: "USD",
+              items: [{ description: "Sterile Trauma Surgical Field Packs", quantity: "10", unitAmount: "450.00" }],
+            },
+            findings: [],
+            totalMinor: 450000,
+          })}::jsonb,
+          'sig_historic_med_01',
+          now() - interval '2 days'
+        )
+        ON CONFLICT (id) DO NOTHING
+      `;
+
+      await sql`
+        INSERT INTO disbursements (id, campaign_id, vendor_id, review_id, amount_minor, currency, status, po_number, doc_hash, payout_batch_id, payout_item_id, proof_hash, created_at)
+        VALUES (
+          'DISB-MED-HISTORIC-01',
+          'CAMP-MED-01',
+          'VEND-APEX-01',
+          'REV-MED-HISTORIC-01',
+          450000,
+          'USD',
+          'PAID',
+          'GRANT-RELIEF-2026-MED01-HISTORIC',
+          'sha256:d8a291f09c2a38b4c5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b1c2d3e4f5a6b7c8',
+          'PAYOUT-SANDBOX-HISTORIC-99',
+          'ITEM-HISTORIC-01',
+          'sha256:f7a819b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e9f0',
+          now() - interval '2 days'
+        )
+        ON CONFLICT (id) DO NOTHING
+      `;
     })().catch((error) => {
       schemaReady = undefined;
       throw error;

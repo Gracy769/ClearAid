@@ -114,10 +114,21 @@ export async function POST(req: NextRequest) {
       typeof orderObj === "object" && orderObj !== null
         ? (orderObj as Record<string, unknown>)
         : undefined;
+
+    if (resObj && "error" in resObj) {
+      const errVal = resObj.error;
+      const errMsg =
+        typeof errVal === "object" && errVal !== null && "message" in (errVal as Record<string, unknown>)
+          ? String((errVal as Record<string, unknown>).message)
+          : String(errVal);
+      return NextResponse.json({ error: `PayPal error: ${errMsg}` }, { status: 502 });
+    }
+
     const orderId = (resObj?.id as string) || (resObj?.orderId as string);
     if (!orderId) {
+      const msg = resObj?.message ? String(resObj.message) : "PayPal order creation did not return an order ID.";
       return NextResponse.json(
-        { error: "PayPal order creation did not return an order ID." },
+        { error: msg },
         { status: 502 }
       );
     }

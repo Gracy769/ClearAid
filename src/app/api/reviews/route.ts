@@ -3,7 +3,7 @@ import { extractInvoiceTerms } from "@/lib/ai";
 import { extractTermsFromPdfText, extractMultiReportsFromPdfText } from "@/lib/pdf-extract";
 import { runPreflight } from "@/lib/preflight";
 import { newId, sign } from "@/lib/security";
-import { saveReview } from "@/lib/db";
+import { saveReview, getCampaignById, getCampaignsWithAggregates, getDisbursements } from "@/lib/db";
 import type { ReviewInput, BatchReportReview } from "@/lib/types";
 import { z } from "zod";
 import { createHash } from "node:crypto";
@@ -19,6 +19,7 @@ export async function POST(req: NextRequest) {
       poNumber: z.string().max(120).default(""),
       currency: z.string().max(3).default("USD"),
       poCap: z.string().max(30).optional(),
+      campaignId: z.string().max(100).optional(),
       items: z.array(z.object({
         description: z.string().max(500),
         quantity: z.string().max(20),
@@ -159,6 +160,56 @@ export async function POST(req: NextRequest) {
         const start = Math.max(0, at - 90);
         return [{ document: file instanceof File ? file.name : "Uploaded PO/SOW", page: page.num, quote: page.text.slice(start, Math.min(page.text.length, at + value.length + 120)).replace(/\s+/g, " ").trim() }];
       }).slice(0, 20);
+    }
+
+    // Bind Campaign SOW Rate Card and Check for Duplicate Disbursements
+    let campaignId = input.campaignId;
+    if (!campaignId && input.poNumber) {
+      try {
+        const camps = await getCampaignsWithAggregates();
+        const matched = camps.find((c) =>
+          c.grantCode && input.poNumber.toLowerCase().includes(c.grantCode.toLowerCase())
+        );
+        if (matched) campaignId = matched.id;
+      } catch {}
+    }
+
+    if (campaignId) {
+      try {
+        const camp = await getCampaignById(campaignId);
+        if (camp) {
+          input.campaignId = camp.id;
+          input.sourceTerms = {
+            ...input.sourceTerms,
+            rateCard: camp.sowRateCard || input.sourceTerms?.rateCard,
+            sowHash: camp.sowHash || input.sourceTerms?.sowHash,
+          };
+          if (!input.poCap || input.poCap === "0" || input.poCap === "0.00") {
+            input.poCap = (camp.availableMinor / 100).toFixed(2);
+          }
+
+          // Check if this PO reference or document hash matches an existing disbursement
+          const disbs = await getDisbursements(camp.id);
+          const targetPo = input.poNumber.trim().toLowerCase();
+          const dup = disbs.find((d) => {
+            if (d.status === "FAILED") return false;
+            if (d.poNumber && d.poNumber.trim().toLowerCase() === targetPo) return true;
+            if (d.id.toLowerCase().includes(targetPo)) return true;
+            if (input.documentHash && d.docHash && d.docHash.toLowerCase() === input.documentHash.toLowerCase()) return true;
+            return false;
+          });
+
+          if (dup) {
+            input.duplicateMatch = {
+              existingId: dup.id,
+              poNumber: dup.poNumber || input.poNumber,
+              amountMinor: dup.amountMinor,
+            };
+          }
+        }
+      } catch (err) {
+        console.warn("Could not bind campaign SOW rate card during preflight review:", err);
+      }
     }
 
     const review = runPreflight(input);

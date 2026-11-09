@@ -145,6 +145,480 @@ interface BatchReportStatus {
   error?: string;
 }
 
+interface DemoScenario {
+  id: string;
+  type: "clean" | "rate" | "duplicate" | "unauthorized" | "overrun";
+  title: string;
+  shortLabel: string;
+  badgeText: string;
+  amountDisplay: string;
+  description: string;
+  expectedDecision: string;
+  campaignId: string;
+  vendorId: string;
+  data: {
+    vendorName: string;
+    buyerName: string;
+    buyerEmail: string;
+    poNumber: string;
+    currency: string;
+    poCap: string;
+    items: Array<{ description: string; quantity: string; unitAmount: string }>;
+  };
+}
+
+const DEMO_SCENARIOS: DemoScenario[] = [
+  {
+    id: "clean",
+    type: "clean",
+    title: "Case 1: Clean Invoice (Field Hospital Deployment)",
+    shortLabel: "Clean Invoice",
+    badgeText: "ELIGIBLE FOR APPROVAL",
+    amountDisplay: "$7,700.00",
+    description: "Surgical packs & anesthesia match SOW rate cards and quantities within grant budget ceiling.",
+    expectedDecision: "APPROVE (Ready for Payout)",
+    campaignId: "CAMP-MED-01",
+    vendorId: "VEND-APEX-01",
+    data: {
+      vendorName: "Apex Cloud Systems & Studio Lab Inc.",
+      buyerName: "Global Emergency Health Corps",
+      buyerEmail: "procurement@gehc.org",
+      poNumber: "GRANT-RELIEF-2026-MED01-P1",
+      currency: "USD",
+      poCap: "15000.00",
+      items: [
+        { description: "Sterile Trauma Surgical Field Packs", quantity: "10", unitAmount: "450.00" },
+        { description: "Portable Field Anesthesia Units", quantity: "1", unitAmount: "3200.00" },
+      ],
+    },
+  },
+  {
+    id: "rate",
+    type: "rate",
+    title: "Case 2: Over-Rate Invoice (Inflated Trauma Kits)",
+    shortLabel: "Over-Rate Invoice",
+    badgeText: "RATE CEILING EXCEPTION",
+    amountDisplay: "$11,500.00",
+    description: "Vendor bills $575.00/unit for trauma packs against approved SOW ceiling of $450.00 (+$125/unit excess).",
+    expectedDecision: "BLOCK ($2,500.00 Excess Prevented)",
+    campaignId: "CAMP-MED-01",
+    vendorId: "VEND-APEX-01",
+    data: {
+      vendorName: "Apex Cloud Systems & Studio Lab Inc.",
+      buyerName: "Global Emergency Health Corps",
+      buyerEmail: "procurement@gehc.org",
+      poNumber: "GRANT-RELIEF-2026-MED01-RATE",
+      currency: "USD",
+      poCap: "25000.00",
+      items: [
+        { description: "Sterile Trauma Surgical Field Packs", quantity: "20", unitAmount: "575.00" },
+      ],
+    },
+  },
+  {
+    id: "duplicate",
+    type: "duplicate",
+    title: "Case 3: Duplicate Invoice (Double-Billing Guard)",
+    shortLabel: "Duplicate Invoice",
+    badgeText: "DUPLICATE INVOICE",
+    amountDisplay: "$4,500.00",
+    description: "Submits identical PO milestone already settled in prior disbursement #DISB-MED-HISTORIC-01.",
+    expectedDecision: "BLOCK (Duplicate Milestone Prevented)",
+    campaignId: "CAMP-MED-01",
+    vendorId: "VEND-APEX-01",
+    data: {
+      vendorName: "Apex Cloud Systems & Studio Lab Inc.",
+      buyerName: "Global Emergency Health Corps",
+      buyerEmail: "procurement@gehc.org",
+      poNumber: "GRANT-RELIEF-2026-MED01-HISTORIC",
+      currency: "USD",
+      poCap: "25000.00",
+      items: [
+        { description: "Sterile Trauma Surgical Field Packs", quantity: "10", unitAmount: "450.00" },
+      ],
+    },
+  },
+  {
+    id: "unauthorized",
+    type: "unauthorized",
+    title: "Case 4: Unauthorized Item (Out-of-Scope Procurement)",
+    shortLabel: "Unauthorized Scope",
+    badgeText: "UNAUTHORIZED SOW ITEM",
+    amountDisplay: "$6,750.00",
+    description: "Includes an executive luxury chauffeur VIP transfer absent from the approved medical relief SOW catalog.",
+    expectedDecision: "BLOCK ($4,500.00 Unapproved Prevented)",
+    campaignId: "CAMP-MED-01",
+    vendorId: "VEND-APEX-01",
+    data: {
+      vendorName: "Apex Cloud Systems & Studio Lab Inc.",
+      buyerName: "Global Emergency Health Corps",
+      buyerEmail: "procurement@gehc.org",
+      poNumber: "GRANT-RELIEF-2026-MED01-SCOPE",
+      currency: "USD",
+      poCap: "25000.00",
+      items: [
+        { description: "Sterile Trauma Surgical Field Packs", quantity: "5", unitAmount: "450.00" },
+        { description: "Executive Luxury SUV Airport Chauffeur & VIP Escort", quantity: "1", unitAmount: "4500.00" },
+      ],
+    },
+  },
+  {
+    id: "overrun",
+    type: "overrun",
+    title: "Case 5: Budget Overrun (Cap & Quota Exceeded)",
+    shortLabel: "Budget Overrun",
+    badgeText: "GRANT BUDGET OVERRUN",
+    amountDisplay: "$19,200.00",
+    description: "Invoice total ($19,200.00) exceeds stated PO allocation cap ($10,000.00) and exceeds SOW quota of 4 units.",
+    expectedDecision: "BLOCK (PO Cap Exceeded by $9,200.00)",
+    campaignId: "CAMP-MED-01",
+    vendorId: "VEND-APEX-01",
+    data: {
+      vendorName: "Apex Cloud Systems & Studio Lab Inc.",
+      buyerName: "Global Emergency Health Corps",
+      buyerEmail: "procurement@gehc.org",
+      poNumber: "GRANT-RELIEF-2026-MED01-OVERRUN",
+      currency: "USD",
+      poCap: "10000.00",
+      items: [
+        { description: "Portable Field Anesthesia Units", quantity: "6", unitAmount: "3200.00" },
+      ],
+    },
+  },
+];
+
+interface PolicyException {
+  rule: string;
+  scopeItem: string;
+  submitted: string;
+  approvedCeiling: string;
+  variance: string;
+  amountProtectedMinor: number;
+  decision: "BLOCK";
+  override: string;
+  resolution: string;
+}
+
+function computePolicyExceptions(
+  rev: ReviewResult | null,
+  trace?: { discrepancies?: Array<{ category?: string; description?: string; severity?: string; remedyRecommendation?: string }> } | null
+): PolicyException[] {
+  if (!rev) return [];
+  const exceptions: PolicyException[] = [];
+
+  for (const f of rev.findings) {
+    if (f.severity !== "block") continue;
+
+    if (f.code.startsWith("rate_exceeds_sow")) {
+      const lineNumMatch = f.code.match(/_(\d+)$/);
+      const idx = lineNumMatch ? parseInt(lineNumMatch[1], 10) : 0;
+      const item = rev.input.items[idx];
+      const match = f.message.match(/rate \$([0-9.]+) exceeds SOW maximum \$([0-9.]+) by \$([0-9.]+)\/unit/i);
+      const subRate = match ? `$${match[1]}` : `$${item?.unitAmount || "0.00"}`;
+      const ceiling = match ? `$${match[2]}` : "Approved Ceiling";
+      const excessStr = match ? match[3] : "0.00";
+      const excessPerUnit = parseFloat(excessStr) || 0;
+      const qty = parseInt(item?.quantity || "1", 10) || 1;
+      const protectedAmount = Math.round(excessPerUnit * qty * 100);
+
+      exceptions.push({
+        rule: "Unit-Rate Ceiling Check",
+        scopeItem: item?.description || "Line item",
+        submitted: `${subRate}/unit (Qty: ${qty})`,
+        approvedCeiling: `${ceiling}/unit`,
+        variance: `+$${excessStr}/unit excess`,
+        amountProtectedMinor: protectedAmount > 0 ? protectedAmount : (rev.totalMinor || 0),
+        decision: "BLOCK",
+        override: "No — Hard Policy Lock",
+        resolution: `Re-issue invoice at or below approved SOW ceiling (${ceiling}), or upload formally signed SOW amendment.`,
+      });
+    } else if (f.code.startsWith("unauthorized_item")) {
+      const lineNumMatch = f.code.match(/_(\d+)$/);
+      const idx = lineNumMatch ? parseInt(lineNumMatch[1], 10) : 0;
+      const item = rev.input.items[idx];
+      const itemTotal = Math.round((parseFloat(item?.unitAmount || "0") * (parseInt(item?.quantity || "1", 10) || 1)) * 100);
+
+      exceptions.push({
+        rule: "SOW Scope & Rate Card Authorization",
+        scopeItem: item?.description || "Unlisted line item",
+        submitted: `$${item?.unitAmount || "0.00"} (Qty: ${item?.quantity || "1"})`,
+        approvedCeiling: "Not in SOW Catalog",
+        variance: "Unapproved deliverable outside procurement scope",
+        amountProtectedMinor: itemTotal > 0 ? itemTotal : (rev.totalMinor || 0),
+        decision: "BLOCK",
+        override: "No — Strict SOW Enforcement",
+        resolution: "Remove unauthorized line item from billing or submit formal SOW scope change order signed by grant owner.",
+      });
+    } else if (f.code === "duplicate_invoice_detected") {
+      exceptions.push({
+        rule: "Duplicate Invoice & Milestone Guard",
+        scopeItem: rev.input.duplicateMatch ? `PO #${rev.input.duplicateMatch.poNumber}` : `PO #${rev.input.poNumber}`,
+        submitted: `$${(rev.totalMinor / 100).toFixed(2)}`,
+        approvedCeiling: "Single Disbursement per Milestone",
+        variance: `Matches prior settled disbursement #${rev.input.duplicateMatch?.existingId || "HISTORIC"}`,
+        amountProtectedMinor: rev.totalMinor,
+        decision: "BLOCK",
+        override: "No — Anti-Double-Billing Lock",
+        resolution: "Reject duplicate invoice. Deliverable milestone was already funded and settled in prior disbursement.",
+      });
+    } else if (f.code === "po_cap_exceeded") {
+      const cap = parseFloat(rev.input.poCap || "0");
+      const total = rev.totalMinor / 100;
+      const excess = Math.max(0, total - cap);
+
+      exceptions.push({
+        rule: "Grant PO Budget Cap Enforcement",
+        scopeItem: `PO #${rev.input.poNumber} Allocation`,
+        submitted: `$${total.toFixed(2)}`,
+        approvedCeiling: `$${cap.toFixed(2)} Cap`,
+        variance: `+$${excess.toFixed(2)} overrun`,
+        amountProtectedMinor: Math.round(excess * 100),
+        decision: "BLOCK",
+        override: "No — Hard Grant Allocation Lock",
+        resolution: "Reduce billing milestone to remain within uncommitted PO cap or request grant allocation increase.",
+      });
+    } else if (f.code.startsWith("quantity_exceeds_sow")) {
+      const lineNumMatch = f.code.match(/_(\d+)$/);
+      const idx = lineNumMatch ? parseInt(lineNumMatch[1], 10) : 0;
+      const item = rev.input.items[idx];
+
+      exceptions.push({
+        rule: "SOW Quantity Quota Allocation",
+        scopeItem: item?.description || "Line item",
+        submitted: `${item?.quantity || "0"} units`,
+        approvedCeiling: "SOW Allocated Quota",
+        variance: f.message,
+        amountProtectedMinor: rev.totalMinor,
+        decision: "BLOCK",
+        override: "No — Hard Quota Lock",
+        resolution: "Adjust billed quantity to approved quota or upload signed grant amendment.",
+      });
+    } else {
+      exceptions.push({
+        rule: "Deterministic Contract Policy Check",
+        scopeItem: f.code.replace(/_/g, " "),
+        submitted: "Non-compliant value",
+        approvedCeiling: "Compliant format / identity",
+        variance: f.message,
+        amountProtectedMinor: rev.totalMinor,
+        decision: "BLOCK",
+        override: "No — Invariant Lock",
+        resolution: "Correct the invoice details to satisfy preflight validation rules.",
+      });
+    }
+  }
+
+  if (trace?.discrepancies) {
+    for (const d of trace.discrepancies) {
+      if (d.severity === "BLOCKING" && d.category === "DUPLICATE_BILLING") {
+        if (!exceptions.some((e) => e.rule.includes("Duplicate"))) {
+          exceptions.push({
+            rule: "Autonomous Agent Duplicate Detection",
+            scopeItem: `PO #${rev.input.poNumber}`,
+            submitted: `$${(rev.totalMinor / 100).toFixed(2)}`,
+            approvedCeiling: "Single Disbursement per Milestone",
+            variance: d.description || "Active duplicate disbursement found in relief campaign pool",
+            amountProtectedMinor: rev.totalMinor,
+            decision: "BLOCK",
+            override: "No — Anti-Double-Billing Lock",
+            resolution: d.remedyRecommendation || "Reject duplicate submission. This invoice deliverable has already been funded.",
+          });
+        }
+      }
+    }
+  }
+
+  return exceptions;
+}
+
+function AuditPackageModal({
+  review,
+  reviewId,
+  approvalToken,
+  agentTrace,
+  campaign,
+  vendor,
+  disbursement,
+  onClose,
+}: {
+  review: ReviewResult;
+  reviewId: string;
+  approvalToken?: string;
+  agentTrace?: {
+    status?: string;
+    summary?: string;
+    steps?: Array<{ step: number; thought?: string; toolCalls: Array<{ toolName: string; args: Record<string, unknown> }> }>;
+  } | null;
+  campaign?: ReliefCampaign;
+  vendor?: { id: string; name: string; email?: string };
+  disbursement?: PublicDisbursementRecord | null;
+  onClose: () => void;
+}) {
+  const [copied, setCopied] = useState(false);
+
+  const auditJson = JSON.stringify(
+    {
+      auditStandard: "ClearAid-v1-HMAC-SHA256",
+      generatedAt: new Date().toISOString(),
+      metadata: {
+        reviewId: reviewId || "REV-NEW",
+        approvalTokenSignature: approvalToken ? approvalToken.slice(0, 32) + "..." : undefined,
+        campaignId: campaign?.id || review.input.campaignId || "CAMP-MED-01",
+        campaignTitle: campaign?.title || "Emergency Trauma Kits & Surgical Field Hospital",
+        grantCode: campaign?.grantCode || review.input.poNumber,
+        vendorId: vendor?.id || "VEND-APEX-01",
+        vendorName: vendor?.name || review.input.vendorName,
+        vendorPayoutEmail: vendor?.email || "sb-qb7vt34522927@personal.example.com",
+      },
+      sowTerms: {
+        sowHash: campaign?.sowHash || "d99d270f152c85a113488edb98cdef35153a6a604b80939802f3119be38caf44",
+        rateCard: campaign?.sowRateCard || [],
+      },
+      submittedInvoice: {
+        poNumber: review.input.poNumber,
+        buyerName: review.input.buyerName,
+        currency: review.input.currency,
+        totalMinor: review.totalMinor,
+        totalFormatted: `$${(review.totalMinor / 100).toFixed(2)}`,
+        items: review.input.items,
+      },
+      deterministicPreflight: {
+        status: review.status,
+        findingsCount: review.findings.length,
+        blockingFindings: review.findings.filter((f) => f.severity === "block"),
+      },
+      autonomousAgentTrace: {
+        status: agentTrace?.status || "NOT_RUN",
+        summary: agentTrace?.summary,
+        stepsExecuted: agentTrace?.steps?.length || 0,
+      },
+      settlementProof: disbursement
+        ? {
+            disbursementId: disbursement.id,
+            payoutBatchId: disbursement.paypalInvoiceId,
+            status: disbursement.status,
+            proofHash: disbursement.preflightProofHash,
+            timestamp: disbursement.timestamp,
+          }
+        : null,
+    },
+    null,
+    2
+  );
+
+  function copyJson() {
+    navigator.clipboard.writeText(auditJson);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  }
+
+  return (
+    <div className="audit-modal-backdrop" onClick={onClose}>
+      <div className="audit-modal" onClick={(e) => e.stopPropagation()}>
+        <div className="audit-modal-header">
+          <div>
+            <h2>ClearAid Procurement Audit Package</h2>
+            <p>Cryptographic review bundle for compliance, grant auditors, and finance management.</p>
+          </div>
+          <button type="button" className="icon-button" onClick={onClose} aria-label="Close modal">
+            <Icon name="close" size={18} />
+          </button>
+        </div>
+        <div className="audit-modal-body">
+          <div>
+            <div className="audit-section-title">
+              <Icon name="shield" size={15} /> 1. Procurement &amp; Grant Metadata
+            </div>
+            <div className="audit-grid-2">
+              <div className="audit-cell">
+                <div className="audit-cell-label">Review Identifier</div>
+                <div className="audit-cell-value">{reviewId || "REV-NEW"}</div>
+              </div>
+              <div className="audit-cell">
+                <div className="audit-cell-label">Campaign &amp; Grant Ref</div>
+                <div className="audit-cell-value">
+                  {campaign?.id || "CAMP-MED-01"} · {campaign?.grantCode || review.input.poNumber}
+                </div>
+              </div>
+              <div className="audit-cell">
+                <div className="audit-cell-label">Registered Vendor</div>
+                <div className="audit-cell-value">
+                  {vendor?.name || review.input.vendorName} ({vendor?.id || "VEND-APEX-01"})
+                </div>
+              </div>
+              <div className="audit-cell">
+                <div className="audit-cell-label">Vendor Payout Email</div>
+                <div className="audit-cell-value">
+                  {vendor?.email || "sb-qb7vt34522927@personal.example.com"}
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div>
+            <div className="audit-section-title">
+              <Icon name="file" size={15} /> 2. Cryptographic SOW Fingerprint &amp; Rate Ceilings
+            </div>
+            <div className="audit-cell">
+              <div className="audit-cell-label">Approved SOW Canonical SHA-256 Hash</div>
+              <div className="audit-cell-value">
+                <code>{campaign?.sowHash || "d99d270f152c85a113488edb98cdef35153a6a604b80939802f3119be38caf44"}</code>
+              </div>
+            </div>
+          </div>
+
+          <div>
+            <div className="audit-section-title">
+              <Icon name="check" size={15} /> 3. Deterministic Decision &amp; Line Items
+            </div>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "8px" }}>
+              <span>Decision: <strong style={{ color: review.status === "READY" ? "var(--success)" : "var(--danger)" }}>{review.status}</strong></span>
+              <span>Invoice Total: <strong>${(review.totalMinor / 100).toFixed(2)} {review.input.currency}</strong></span>
+            </div>
+            <div className="audit-cell">
+              <ul style={{ margin: 0, paddingLeft: "18px", fontSize: "12.5px" }}>
+                {review.input.items.map((it, idx) => (
+                  <li key={idx} style={{ marginBottom: "4px" }}>
+                    <strong>{it.description}</strong> — {it.quantity} @ ${it.unitAmount} = ${(parseFloat(it.unitAmount || "0") * parseInt(it.quantity || "1", 10)).toFixed(2)}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          </div>
+
+          {agentTrace && (
+            <div>
+              <div className="audit-section-title">
+                <Icon name="spark" size={15} /> 4. Autonomous ReAct AI Deliberation
+              </div>
+              <div className="audit-cell">
+                <div style={{ marginBottom: "6px" }}>Status: <strong>{agentTrace.status || "COMPLETED"}</strong></div>
+                {agentTrace.summary && <p style={{ margin: 0, fontSize: "12.5px", color: "#334155" }}>{agentTrace.summary}</p>}
+              </div>
+            </div>
+          )}
+
+          <div>
+            <div className="audit-section-title">
+              <Icon name="download" size={15} /> 5. Canonical Audit Package (Export JSON)
+            </div>
+            <pre className="audit-code-box">{auditJson}</pre>
+          </div>
+        </div>
+
+        <div className="audit-modal-actions">
+          <button type="button" className="button-secondary" onClick={onClose}>
+            Close
+          </button>
+          <button type="button" className="button-primary" onClick={copyJson}>
+            {copied ? "✓ Copied Audit JSON" : "Copy Audit JSON"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function Home() {
   // Top-level platform tab: "campaigns" | "disburse" | "ledger"
   const [activePlatformTab, setActivePlatformTab] = useState<"campaigns" | "disburse" | "ledger">("campaigns");
@@ -234,6 +708,63 @@ export default function Home() {
   } | null>(null);
   const [agentBusy, setAgentBusy] = useState(false);
   const [donationBusy, setDonationBusy] = useState(false);
+  const [activeScenarioId, setActiveScenarioId] = useState<string | null>(null);
+  const [showAuditPackageModal, setShowAuditPackageModal] = useState<boolean>(false);
+
+  const blockingExceptions = useMemo(
+    () => computePolicyExceptions(review, agentTrace),
+    [review, agentTrace]
+  );
+  const totalProtectedMinor = useMemo(
+    () => (blockingExceptions.length > 0 ? blockingExceptions.reduce((acc, ex) => acc + ex.amountProtectedMinor, 0) : 0),
+    [blockingExceptions]
+  );
+
+  async function loadScenario(sc: DemoScenario, autoRun = false) {
+    setActiveScenarioId(sc.id);
+    setSelectedCampaignId(sc.campaignId);
+    setSelectedVendorId(sc.vendorId);
+    const nextData: ReviewInput = {
+      ...sc.data,
+      campaignId: sc.campaignId,
+    };
+    setData(nextData);
+    setFile(null);
+    invalidateReview();
+    setActiveStep(0);
+    setNotice({
+      kind: "info",
+      text: `Loaded ${sc.title}. ${autoRun ? "Executing deterministic preflight check..." : 'Click "Run preflight" to test deterministic policy verification.'}`,
+    });
+
+    if (autoRun) {
+      setBusy(true);
+      try {
+        const form = new FormData();
+        form.set("data", JSON.stringify(nextData));
+        const response = await fetch("/api/reviews", { method: "POST", body: form });
+        const body = await response.json();
+        if (!response.ok) throw new Error(body.error || "The review could not be completed.");
+        setData(body.review.input);
+        setReview(body.review);
+        setReviewId(body.reviewId);
+        setApprovalToken(body.approvalToken);
+        setAiUsed(Boolean(body.aiUsed));
+        if (body.reviewId) {
+          executeReconciliationAgent(body.reviewId);
+        }
+        setNotice(
+          body.review.status === "READY"
+            ? { kind: "success", text: "✓ Preflight PASSED: SOW rate card, terms, and quota verified. Eligible for payout." }
+            : { kind: "error", text: "⛔ Preflight BLOCKED: Contract policy exceptions detected. No PayPal funds will move." }
+        );
+      } catch (err) {
+        setNotice({ kind: "error", text: err instanceof Error ? err.message : "Preflight execution failed." });
+      } finally {
+        setBusy(false);
+      }
+    }
+  }
 
   const refreshCampaigns = async () => {
     try {
@@ -577,7 +1108,7 @@ export default function Home() {
 
     try {
       const form = new FormData();
-      form.set("data", JSON.stringify(data));
+      form.set("data", JSON.stringify({ ...data, campaignId: selectedCampaignId }));
       if (file) form.set("file", file);
       const response = await fetch("/api/reviews", { method: "POST", body: form });
       const body = await response.json();
@@ -917,7 +1448,7 @@ export default function Home() {
       <header className="topbar">
         <div className="topbar-inner">
           <a className="brand" href="#main" aria-label="ClearAid home">
-            <span className="brand-mark" aria-hidden="true">RR</span>
+            <span className="brand-mark" aria-hidden="true">CA</span>
             <div>
               <span className="brand-name">ClearAid</span>
             </div>
@@ -932,6 +1463,22 @@ export default function Home() {
           </span>
         </div>
       </header>
+
+      {/* DEMO OPERATOR & CONTEXT BAR */}
+      <div className="demo-operator-bar">
+        <div className="demo-operator-inner">
+          <div className="demo-operator-tag">
+            <span className="operator-pill">Demo Operator</span>
+            <strong>Emergency Medical Response Network (EMRN)</strong>
+            <span className="operator-divider">•</span>
+            <span className="operator-disclaimer">PayPal Sandbox · Synthetic Invoices · Not a live charity appeal</span>
+          </div>
+          <div className="demo-principle-tag">
+            <Icon name="shield" size={13} />
+            <span>AI organizes &amp; explains evidence. Deterministic controls make the payment decision.</span>
+          </div>
+        </div>
+      </div>
 
       {/* PLATFORM NAVIGATION TABS */}
       <nav className="platform-nav" aria-label="Main navigation">
@@ -1262,6 +1809,56 @@ export default function Home() {
                         </option>
                       ))}
                     </select>
+                  </div>
+
+                  {/* DETERMINISTIC DEMO SCENARIOS SELECTOR */}
+                  <div className="scenario-selector-panel">
+                    <div className="scenario-header">
+                      <span className="scenario-kicker">Interactive Proof-of-Control Scenarios</span>
+                      <h3>Select a Deterministic Demo Case</h3>
+                      <p>
+                        Test how ClearAid evaluates field invoices against approved SOW rate cards, duplicate filters, and budget caps before PayPal funds can move.
+                      </p>
+                    </div>
+                    <div className="scenario-grid">
+                      {DEMO_SCENARIOS.map((sc) => {
+                        const isSelected = activeScenarioId === sc.id;
+                        return (
+                          <div
+                            key={sc.id}
+                            className={`scenario-card${isSelected ? " is-selected" : ""}`}
+                            onClick={() => loadScenario(sc, false)}
+                          >
+                            <div>
+                              <div className="scenario-card-top">
+                                <span className={`scenario-badge badge-${sc.type}`}>
+                                  {sc.badgeText}
+                                </span>
+                                <span className="scenario-amount">{sc.amountDisplay}</span>
+                              </div>
+                              <strong className="scenario-title">{sc.title}</strong>
+                              <p className="scenario-desc">{sc.description}</p>
+                            </div>
+                            <div className="scenario-footer">
+                              <span className="scenario-expected">
+                                Expected: <strong>{sc.expectedDecision}</strong>
+                              </span>
+                              <button
+                                type="button"
+                                className="button-secondary"
+                                style={{ fontSize: "11px", padding: "4px 8px", minHeight: "auto" }}
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  loadScenario(sc, true);
+                                }}
+                              >
+                                Load &amp; Run →
+                              </button>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
                   </div>
 
                   <form className="surface form-surface" onSubmit={runReview}>
@@ -1696,6 +2293,73 @@ export default function Home() {
                     </div>
                   )}
 
+                  {/* WHY BLOCKED EVIDENCE PANEL */}
+                  {blockingExceptions.length > 0 && (
+                    <div className="why-blocked-panel" role="alert">
+                      <div className="why-blocked-header">
+                        <div className="why-blocked-title-group">
+                          <h3>
+                            <Icon name="alert" size={20} />
+                            Payment Blocked Before PayPal Approval
+                          </h3>
+                          <p>
+                            Deterministic contract controls prevented this invoice from entering payment execution. No funds have moved.
+                          </p>
+                        </div>
+                        <div className="why-blocked-shield">
+                          <span className="why-blocked-shield-amount">
+                            {formatMoney(totalProtectedMinor, review.input.currency)}
+                          </span>
+                          <span className="why-blocked-shield-label">Protected from Unauthorized Payout</span>
+                        </div>
+                      </div>
+                      <div className="why-blocked-body">
+                        <div className="why-blocked-table-wrap">
+                          <table className="why-blocked-table">
+                            <thead>
+                              <tr>
+                                <th>Failed Policy Rule</th>
+                                <th>Deliverable / Scope</th>
+                                <th>Submitted</th>
+                                <th>Approved Ceiling</th>
+                                <th>Variance</th>
+                                <th>Amount at Risk</th>
+                                <th>Decision</th>
+                                <th>Required Resolution</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {blockingExceptions.map((ex, i) => (
+                                <tr key={i}>
+                                  <td><strong>{ex.rule}</strong></td>
+                                  <td>{ex.scopeItem}</td>
+                                  <td style={{ fontFamily: "monospace", color: "#b91c1c", fontWeight: 600 }}>{ex.submitted}</td>
+                                  <td style={{ fontFamily: "monospace", color: "#15803d", fontWeight: 600 }}>{ex.approvedCeiling}</td>
+                                  <td><span style={{ color: "#c2410c", fontWeight: 600 }}>{ex.variance}</span></td>
+                                  <td style={{ fontFamily: "monospace", fontWeight: 700 }}>
+                                    {formatMoney(ex.amountProtectedMinor, review.input.currency)}
+                                  </td>
+                                  <td>
+                                    <span className="why-blocked-badge" style={{ background: "#fee2e2", color: "#991b1b" }}>
+                                      {ex.decision}
+                                    </span>
+                                  </td>
+                                  <td style={{ fontSize: "12px", color: "#475569" }}>{ex.resolution}</td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                        <div className="why-blocked-footer-note">
+                          <Icon name="shield" size={16} />
+                          <span>
+                            <strong>Deterministic Hard Lock:</strong> Human reviewers cannot override rate ceilings, budget caps, or duplicate blocks without an uploaded, cryptographically-hashed SOW amendment.
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
                   <section className="surface result-surface" style={{ marginTop: 0 }} aria-labelledby="result-title">
                     <div className="result-topline">
                       <div>
@@ -1706,12 +2370,22 @@ export default function Home() {
                             : "No deterministic blockers found. Confirm the details before approval."}
                         </p>
                       </div>
-                      <span className={`status-badge status-${review.status.toLowerCase()}`}>
-                        <span className="status-icon">
-                          <Icon name={review.status === "READY" ? "check" : "alert"} size={14} />
+                      <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+                        <button
+                          type="button"
+                          className="button-secondary"
+                          style={{ fontSize: "12px", padding: "4px 10px", minHeight: "auto", display: "inline-flex", alignItems: "center", gap: "6px" }}
+                          onClick={() => setShowAuditPackageModal(true)}
+                        >
+                          <Icon name="file" size={14} /> Audit Package
+                        </button>
+                        <span className={`status-badge status-${review.status.toLowerCase()}`}>
+                          <span className="status-icon">
+                            <Icon name={review.status === "READY" ? "check" : "alert"} size={14} />
+                          </span>
+                          {review.status}
                         </span>
-                        {review.status}
-                      </span>
+                      </div>
                     </div>
 
                     <div className="total-callout">
@@ -1892,7 +2566,30 @@ export default function Home() {
                         )}
                       </div>
 
-                      {!invoiceId && (
+                      {/* DETERMINISTIC PAYMENT LOCK BANNER (IF EXCEPTIONS EXIST) */}
+                      {blockingExceptions.length > 0 ? (
+                        <div style={{ marginTop: "16px", padding: "18px 20px", background: "#fef2f2", border: "2px solid #ef4444", borderRadius: "10px" }}>
+                          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: "10px" }}>
+                            <div>
+                              <div style={{ display: "flex", alignItems: "center", gap: "8px", color: "#991b1b", marginBottom: "6px" }}>
+                                <Icon name="alert" size={18} />
+                                <strong style={{ fontSize: "14px" }}>PayPal Payout Rail Locked by Policy Engine</strong>
+                              </div>
+                              <p style={{ margin: 0, fontSize: "12.5px", color: "#b91c1c", lineHeight: "1.5" }}>
+                                This invoice contains <strong>{blockingExceptions.length} unresolved contract exceptions</strong> totaling <strong>{formatMoney(totalProtectedMinor, review.input.currency)} in protected pool funds</strong>. ClearAid enforces hard deterministic locks before PayPal Payouts can be initiated.
+                              </p>
+                            </div>
+                            <button
+                              type="button"
+                              className="button-secondary"
+                              style={{ fontSize: "12px", padding: "5px 12px", minHeight: "auto" }}
+                              onClick={() => setShowAuditPackageModal(true)}
+                            >
+                              <Icon name="file" size={14} /> View Audit Package
+                            </button>
+                          </div>
+                        </div>
+                      ) : !invoiceId && (
                         <div className="approval-row" style={{ marginTop: "16px", paddingTop: "16px", flexDirection: "column", gap: "12px", alignItems: "stretch" }}>
                           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "8px" }}>
                             <div>
@@ -2309,21 +3006,70 @@ export default function Home() {
                             </div>
                           </td>
                           <td>
-                            <span
-                              style={{
-                                display: "inline-flex",
-                                alignItems: "center",
-                                gap: "4px",
-                                padding: "4px 8px",
-                                borderRadius: "4px",
-                                background: "var(--success-bg)",
-                                color: "var(--success)",
-                                fontWeight: 700,
-                                fontSize: "11px",
-                              }}
-                            >
-                              <Icon name="check" size={13} /> SEALED
-                            </span>
+                            <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                              <span
+                                style={{
+                                  display: "inline-flex",
+                                  alignItems: "center",
+                                  gap: "4px",
+                                  padding: "3px 7px",
+                                  borderRadius: "4px",
+                                  background: "var(--success-bg)",
+                                  color: "var(--success)",
+                                  fontWeight: 700,
+                                  fontSize: "11px",
+                                }}
+                              >
+                                <Icon name="check" size={13} /> SEALED
+                              </span>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  const match = disbursements.find(
+                                    (d) => d.id === entry.refId || d.grantCode === entry.refId
+                                  ) || {
+                                    id: entry.refId || `DISB-${entry.id}`,
+                                    campaignId: entry.campaignId || "CAMP-MED-01",
+                                    campaignTitle:
+                                      entry.campaignId === "CAMP-WATER-02"
+                                        ? "Clean Water Desalination & Solar Purification Rigs"
+                                        : entry.campaignId === "CAMP-SHELTER-03"
+                                        ? "Rapid Thermal Shelters & Micro-Grid Generators"
+                                        : "Emergency Trauma Kits & Surgical Field Hospital",
+                                    paypalInvoiceId:
+                                      (entry.payload?.payoutBatchId as string) ||
+                                      (entry.payload?.invoiceId as string) ||
+                                      `PAYOUT-${entry.id}`,
+                                    vendorName: (entry.payload?.vendorName as string) || "Apex Cloud Systems",
+                                    buyerName: "ClearAid Disaster Response Network",
+                                    grantCode: entry.refId,
+                                    category: (entry.payload?.category as string) || "Emergency Field Deliverables",
+                                    amountMinor: Number(entry.payload?.amountMinor || 0),
+                                    currency: "USD",
+                                    preflightProofHash: entry.entryHash,
+                                    timestamp: new Date(entry.createdAt).toUTCString().replace("GMT", "UTC"),
+                                    status: "PAID_VIA_PAYPAL" as const,
+                                    isSimulated: true,
+                                  };
+                                  setViewingDisbursement(match);
+                                }}
+                                style={{
+                                  display: "inline-flex",
+                                  alignItems: "center",
+                                  gap: "3px",
+                                  fontSize: "11px",
+                                  color: "var(--blue)",
+                                  fontWeight: 600,
+                                  background: "transparent",
+                                  border: "1px solid #bfdbfe",
+                                  borderRadius: "4px",
+                                  padding: "3px 7px",
+                                  cursor: "pointer",
+                                }}
+                              >
+                                Proof <Icon name="external" size={11} />
+                              </button>
+                            </div>
                           </td>
                         </tr>
                       );
@@ -2471,8 +3217,8 @@ export default function Home() {
               </section>
 
               <footer className="workspace-footer">
-                <span className="footer-mark">IR</span>
-                <span>Invoice Ready</span>
+                <span className="footer-mark">CA</span>
+                <span>ClearAid</span>
                 <span className="footer-divider" />
                 <span>Evidence before you bill.</span>
               </footer>
@@ -2542,7 +3288,7 @@ export default function Home() {
               </section>
 
               <footer className="workspace-footer">
-                <span className="footer-mark">RR</span>
+                <span className="footer-mark">CA</span>
                 <span>ClearAid</span>
                 <span className="footer-divider" />
                 <span>Evidence-based humanitarian aid.</span>
@@ -2605,7 +3351,7 @@ export default function Home() {
               </section>
 
               <footer className="workspace-footer">
-                <span className="footer-mark">RR</span>
+                <span className="footer-mark">CA</span>
                 <span>ClearAid</span>
                 <span className="footer-divider" />
                 <span>Evidence-based humanitarian aid.</span>
@@ -2621,7 +3367,7 @@ export default function Home() {
           <div className="cert-modal" onClick={(e) => e.stopPropagation()}>
             <div className="cert-header">
               <div className="cert-brand-group">
-                <span className="cert-seal" aria-hidden="true">RR</span>
+                <span className="cert-seal" aria-hidden="true">CA</span>
                 <div className="cert-title-group">
                   <h2>Verified Disbursement Certificate</h2>
                   <p>ClearAid deterministic preflight &amp; PayPal settlement</p>
@@ -2720,6 +3466,16 @@ export default function Home() {
             )}
 
             <div className="cert-actions">
+              <button
+                type="button"
+                className="button-secondary"
+                onClick={() => {
+                  setShowAuditPackageModal(true);
+                }}
+                style={{ display: "inline-flex", alignItems: "center", gap: "6px" }}
+              >
+                <Icon name="shield" size={14} /> View Full Audit Package JSON
+              </button>
               {!viewingDisbursement.isSimulated && viewingDisbursement.hostedInvoiceUrl && (
                 <a
                   className="button-secondary"
@@ -2741,6 +3497,41 @@ export default function Home() {
             </div>
           </div>
         </div>
+      )}
+
+      {/* CLEARAID AUDIT PACKAGE MODAL */}
+      {showAuditPackageModal && (
+        <AuditPackageModal
+          review={
+            review || {
+              status: "READY",
+              findings: [],
+              totalMinor: viewingDisbursement?.amountMinor || 1250000,
+              input: {
+                vendorName: viewingDisbursement?.vendorName || "Apex Cloud Systems",
+                buyerName: viewingDisbursement?.buyerName || "ClearAid Emergency Response Network",
+                poNumber: viewingDisbursement?.grantCode || "GRANT-RELIEF-2026-MED01",
+                currency: viewingDisbursement?.currency || "USD",
+                items: viewingDisbursement?.items || [
+                  {
+                    description: viewingDisbursement?.category || "Emergency Field Deliverables",
+                    quantity: "1",
+                    unitAmount: String(((viewingDisbursement?.amountMinor || 1250000) / 100).toFixed(2)),
+                  },
+                ],
+              },
+            }
+          }
+          reviewId={reviewId || viewingDisbursement?.id || "REV-AUDIT-LATEST"}
+          approvalToken={approvalToken}
+          agentTrace={agentTrace}
+          campaign={campaigns.find(
+            (c) => c.id === (selectedCampaignId || review?.input.campaignId || viewingDisbursement?.campaignId)
+          )}
+          vendor={VENDORS.find((v) => v.name === (review?.input.vendorName || viewingDisbursement?.vendorName))}
+          disbursement={viewingDisbursement || disbursements.find((d) => d.grantCode === review?.input.poNumber)}
+          onClose={() => setShowAuditPackageModal(false)}
+        />
       )}
     </main>
   );
