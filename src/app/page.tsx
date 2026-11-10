@@ -3138,37 +3138,111 @@ export default function Home() {
                         </button>
                       </div>
 
-                      {agentTrace?.summary && (
-                        <p style={{ fontSize: "13px", color: "#334155", margin: "0 0 12px", lineHeight: "1.5" }}>
-                          {agentTrace.summary}
-                        </p>
-                      )}
-
-                      {agentTrace?.steps && agentTrace.steps.length > 0 && (
-                        <div style={{ display: "flex", flexDirection: "column", gap: "8px", marginTop: "10px" }}>
-                          {agentTrace.steps.map((st) => (
-                            <div
-                              key={st.step}
+                      {/* COLORFUL HUMAN-LANGUAGE VERDICT CARD */}
+                      {agentTrace && (
+                        <div
+                          style={{
+                            marginTop: "12px",
+                            padding: "16px",
+                            borderRadius: "8px",
+                            border: agentTrace.status === "APPROVED" ? "1.5px solid #86efac" : "1.5px solid #fca5a5",
+                            background: agentTrace.status === "APPROVED" ? "#f0fdf4" : "#fef2f2",
+                          }}
+                        >
+                          {/* BADGE & SUMMARY */}
+                          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "12px", flexWrap: "wrap", gap: "8px" }}>
+                            <span
                               style={{
-                                padding: "10px 12px",
-                                background: "#ffffff",
-                                border: "1px solid #cbd5e1",
+                                display: "inline-flex",
+                                alignItems: "center",
+                                gap: "6px",
+                                padding: "4px 10px",
                                 borderRadius: "6px",
                                 fontSize: "12px",
-                                fontFamily: "var(--font-geist-mono), monospace",
+                                fontWeight: 800,
+                                textTransform: "uppercase",
+                                letterSpacing: "0.5px",
+                                background: agentTrace.status === "APPROVED" ? "#16a34a" : "#dc2626",
+                                color: "#ffffff",
                               }}
                             >
-                              <div style={{ display: "flex", justifyContent: "space-between", color: "#0057ff", fontWeight: 600, marginBottom: "4px" }}>
-                                <span>Step {st.step}: {st.toolCalls.map((tc) => tc.toolName).join(", ") || "Audit Reasoning"}</span>
+                              <Icon name={agentTrace.status === "APPROVED" ? "check" : "alert"} size={14} />
+                              {agentTrace.status === "APPROVED"
+                                ? "VERDICT: APPROVED FOR PAYOUT"
+                                : agentTrace.status === "DUPLICATE_DETECTED"
+                                ? "VERDICT: BLOCKED (DUPLICATE DETECTED)"
+                                : "VERDICT: BLOCKED (SOW VIOLATION)"}
+                            </span>
+                            <span style={{ fontSize: "12px", color: "#64748b", fontWeight: 600 }}>
+                              Autonomous Contract Audit
+                            </span>
+                          </div>
+
+                          {/* DECISION, WHERE, ACTION */}
+                          <div
+                            style={{
+                              display: "grid",
+                              gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))",
+                              gap: "10px",
+                              marginBottom: "12px",
+                            }}
+                          >
+                            <div style={{ background: "#ffffff", padding: "10px 12px", borderRadius: "8px", border: "1px solid #e2e8f0" }}>
+                              <div style={{ fontSize: "11px", fontWeight: 700, color: "#64748b", textTransform: "uppercase" }}>Decision</div>
+                              <div style={{ fontSize: "13px", fontWeight: 700, color: agentTrace.status === "APPROVED" ? "#15803d" : "#b91c1c", marginTop: "2px" }}>
+                                {agentTrace.status === "APPROVED" ? "✓ Ready to Disburse Funds" : "⛔ Payout Halted & Locked"}
                               </div>
-                              {st.thought && <div style={{ color: "#64748b", marginBottom: "4px" }}>Thought: {st.thought}</div>}
-                              {st.toolCalls.length > 0 && (
-                                <div style={{ color: "#334155" }}>
-                                  Args: {JSON.stringify(st.toolCalls[0].args)}
-                                </div>
-                              )}
                             </div>
-                          ))}
+
+                            <div style={{ background: "#ffffff", padding: "10px 12px", borderRadius: "8px", border: "1px solid #e2e8f0" }}>
+                              <div style={{ fontSize: "11px", fontWeight: 700, color: "#64748b", textTransform: "uppercase" }}>Where</div>
+                              <div style={{ fontSize: "13px", fontWeight: 600, color: "#0f172a", marginTop: "2px" }}>
+                                {campaigns.find((c) => c.id === selectedCampaignId)?.title || data.poNumber || "Active Grant Pool"}
+                              </div>
+                            </div>
+
+                            <div style={{ background: "#ffffff", padding: "10px 12px", borderRadius: "8px", border: "1px solid #e2e8f0" }}>
+                              <div style={{ fontSize: "11px", fontWeight: 700, color: "#64748b", textTransform: "uppercase" }}>Action Taken</div>
+                              <div style={{ fontSize: "13px", fontWeight: 600, color: "#0f172a", marginTop: "2px" }}>
+                                {agentTrace.status === "APPROVED" ? "Grant pool reserved; HMAC token signed" : "Zero donor funds moved; locked in pool"}
+                              </div>
+                            </div>
+                          </div>
+
+                          {/* WHY (IN PLAIN LANGUAGE) */}
+                          <div style={{ background: "#ffffff", padding: "12px 14px", borderRadius: "8px", border: "1px solid #e2e8f0" }}>
+                            <div style={{ fontSize: "11px", fontWeight: 700, color: "#64748b", textTransform: "uppercase", marginBottom: "4px" }}>
+                              Why (Audit Reason)
+                            </div>
+                            <p style={{ margin: 0, fontSize: "13px", color: "#1e293b", lineHeight: "1.5", fontWeight: 500 }}>
+                              {agentTrace.summary || (
+                                agentTrace.status === "APPROVED"
+                                  ? "All line items match approved SOW rate ceilings, deterministic math verified, and invoice total fits within remaining grant budget."
+                                  : agentTrace.status === "DUPLICATE_DETECTED"
+                                  ? "Identical milestone or invoice was already settled in prior disbursements. Double-billing has been blocked."
+                                  : "Invoice contains rate ceiling overages, unauthorized catalog items, or exceeds the approved PO budget cap."
+                              )}
+                            </p>
+
+                            {/* EXPLANATION OF SPECIFIC BLOCKS WITHOUT CODE ARGS */}
+                            {agentTrace.discrepancies && agentTrace.discrepancies.length > 0 && (
+                              <div style={{ marginTop: "10px", paddingTop: "8px", borderTop: "1px dashed #cbd5e1", display: "flex", flexDirection: "column", gap: "6px" }}>
+                                {agentTrace.discrepancies.map((d, i) => (
+                                  <div key={i} style={{ display: "flex", alignItems: "flex-start", gap: "6px", fontSize: "12.5px", color: "#991b1b" }}>
+                                    <span style={{ fontWeight: 700 }}>•</span>
+                                    <div>
+                                      <strong>{d.category.replace(/_/g, " ")}:</strong> {d.description}
+                                      {d.remedyRecommendation && (
+                                        <div style={{ fontSize: "11.5px", color: "#475569", marginTop: "2px" }}>
+                                          👉 <em>Fix: {d.remedyRecommendation}</em>
+                                        </div>
+                                      )}
+                                    </div>
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+                          </div>
                         </div>
                       )}
                     </div>
