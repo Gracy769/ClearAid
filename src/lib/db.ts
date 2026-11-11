@@ -393,14 +393,7 @@ export async function ensureSchema() {
         `;
       }
 
-      // 5. Seed Initial Pool Donations for Demo Scenarios
-      await sql`
-        INSERT INTO donations (id, campaign_id, amount_minor, currency, status, capture_id, payer_email)
-        VALUES
-          ('DON-SEED-MED-01', 'CAMP-MED-01', 5000000, 'USD', 'COMPLETED', 'CAPTURE-SEED-MED', 'donor-relief-fund@foundation.example.org'),
-          ('DON-SEED-WTR-02', 'CAMP-WATER-02', 3000000, 'USD', 'COMPLETED', 'CAPTURE-SEED-WTR', 'water-foundation@global.example.org')
-        ON CONFLICT (id) DO NOTHING
-      `;
+      // 5. Seed Initial Pool Donations: NONE (real donor inflows only via PayPal capture)
 
       // 6. Seed Historical Review & Settled Disbursement (for Duplicate Detection Demo)
       await sql`

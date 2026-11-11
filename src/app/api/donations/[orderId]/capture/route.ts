@@ -52,33 +52,12 @@ export async function POST(
     try {
       result = (await paypalCaptureOrder(orderId)) as Record<string, unknown>;
     } catch (captureErr) {
-      console.warn("PayPal order capture error, checking sandbox fallback:", captureErr);
-      if (process.env.PAYPAL_SANDBOX !== "false" || orderId.startsWith("5O") || orderId.startsWith("SANDBOX-")) {
-        result = {
-          id: orderId,
-          status: "COMPLETED",
-          purchase_units: [
-            {
-              payments: {
-                captures: [
-                  {
-                    id: `CAP-${orderId}`,
-                    status: "COMPLETED",
-                    amount: { currency_code: existing?.currency || "USD", value: ((existing?.amountMinor || 5000) / 100).toFixed(2) },
-                  },
-                ],
-              },
-            },
-          ],
-        };
-      } else {
-        await releaseDonationCapture(orderId);
-        reserved = false;
-        return NextResponse.json(
-          { error: captureErr instanceof Error ? captureErr.message : "PayPal order capture failed." },
-          { status: 502 }
-        );
-      }
+      await releaseDonationCapture(orderId);
+      reserved = false;
+      return NextResponse.json(
+        { error: captureErr instanceof Error ? captureErr.message : "PayPal order capture failed." },
+        { status: 502 }
+      );
     }
 
     if (result && typeof result.text === "string") {

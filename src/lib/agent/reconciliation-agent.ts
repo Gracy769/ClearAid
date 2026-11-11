@@ -1,5 +1,6 @@
 import { generateText, tool, type LanguageModelV1 } from "ai";
 import { z } from "zod";
+import { createHash } from "node:crypto";
 import { getGeminiModel } from "@/lib/ai";
 import { paypalCreateDraft, paypalTools } from "@/lib/paypal";
 import { toPayPalInvoiceDraft } from "@/lib/paypal-adapter";
@@ -67,6 +68,46 @@ function parseCents(value: string | number | undefined): number | null {
   return Number.isSafeInteger(amount) && amount > 0 ? amount : null;
 }
 
+// ---------------------------------------------------------------------------
+// Semantic Deliberation Cache (Mitigates AI Misuse, Replay & Quota Exhaustion)
+// ---------------------------------------------------------------------------
+interface SemanticCacheEntry {
+  result: ReconciliationAgentResult;
+  timestamp: number;
+}
+const semanticCache = new Map<string, SemanticCacheEntry>();
+const SEMANTIC_CACHE_TTL_MS = 1000 * 60 * 30; // 30 minutes
+const MAX_SEMANTIC_CACHE_SIZE = 500;
+
+export function clearSemanticCache(): void {
+  semanticCache.clear();
+}
+
+function computeSemanticHash(input: ReviewInput, userInstruction?: string): string {
+  const normItems = (input.items || [])
+    .map((item) => ({
+      d: (item.description || "").trim().toLowerCase(),
+      q: String(item.quantity || "0").trim(),
+      u: String(item.unitAmount || "0").trim(),
+    }))
+    .sort((a, b) => a.d.localeCompare(b.d));
+
+  const semanticPayload = {
+    v: (input.vendorName || "").trim().toLowerCase(),
+    b: (input.buyerName || "").trim().toLowerCase(),
+    p: (input.poNumber || "").trim().toLowerCase(),
+    c: (input.currency || "").trim().toUpperCase(),
+    cap: (input.poCap || "").trim(),
+    cid: (input.campaignId || "").trim(),
+    items: normItems,
+    docHash: (input.documentHash || "").trim().toLowerCase(),
+    sowHash: (input.sourceTerms?.sowHash || "").trim().toLowerCase(),
+    inst: (userInstruction || "").trim().toLowerCase(),
+  };
+
+  return createHash("sha256").update(JSON.stringify(semanticPayload)).digest("hex");
+}
+
 export async function runReconciliationAgent(
   input: ReconciliationAgentInput
 ): Promise<ReconciliationAgentResult> {
@@ -90,6 +131,27 @@ export async function runReconciliationAgent(
     }
   } else {
     throw new Error("No review, reviewInput, or poData provided to runReconciliationAgent.");
+  }
+
+  // 1b. Check semantic cache (instant <5ms response, shields AI tokens & blocks abuse)
+  const useSemanticCache = !input.customTools && !input.model;
+  const cacheKey = useSemanticCache ? computeSemanticHash(reviewInput, input.userInstruction) : "";
+  if (useSemanticCache && cacheKey) {
+    const cached = semanticCache.get(cacheKey);
+    if (cached && Date.now() - cached.timestamp < SEMANTIC_CACHE_TTL_MS) {
+      return {
+        ...cached.result,
+        steps: [
+          ...cached.result.steps,
+          {
+            step: cached.result.steps.length + 1,
+            thought: "Autonomous audit decision served from verified semantic cache (prior identical review).",
+            toolCalls: [],
+            toolResults: [],
+          },
+        ],
+      };
+    }
   }
 
   // 2. Model resolution (injectable for offline testing)
@@ -236,7 +298,8 @@ export async function runReconciliationAgent(
           const campId = (args?.campaignId || (reviewInput as unknown as { campaignId?: string }).campaignId || "").trim();
           const vendorQuery = (args?.vendorId || reviewInput.vendorName || "").trim().toLowerCase();
           const targetPo = (args?.poNumber || args?.reference || reviewInput.poNumber || "").trim().toLowerCase();
-          const targetHash = (args?.docHash || "").trim().toLowerCase();
+          const targetHash = (args?.docHash || reviewInput.documentHash || "").trim().toLowerCase();
+          const isGenericGrantCode = (ref: string) => /^grant-relief-\d+-[a-z0-9]+$/i.test(ref.trim());
 
           const list = await getDisbursements(campId || undefined);
           const duplicates = list.filter((d) => {
@@ -247,24 +310,23 @@ export async function runReconciliationAgent(
               return false;
             }
 
-            // 2. Check PO / Bill number duplicate
-            if (targetPo) {
-              if (d.poNumber && d.poNumber.trim().toLowerCase() === targetPo) return true;
-              if (d.id.toLowerCase().includes(targetPo) || d.reviewId.toLowerCase().includes(targetPo)) return true;
-            }
-
-            // 3. Check Document / Proof Hash duplicate
+            // 2. Real Document / File / Proof Hash duplicate
             if (targetHash) {
               if (d.docHash && d.docHash.trim().toLowerCase() === targetHash) return true;
               if (d.proofHash && d.proofHash.trim().toLowerCase() === targetHash) return true;
             }
 
-            // 4. Same vendor + same PO
-            if (vendorQuery && targetPo) {
-              const vendorMatch =
-                (d.vendorId && d.vendorId.toLowerCase() === vendorQuery) ||
-                (d.vendorName && d.vendorName.toLowerCase().includes(vendorQuery));
-              if (vendorMatch && d.poNumber && d.poNumber.trim().toLowerCase() === targetPo) return true;
+            // 3. Key on Vendor + Specific Bill Number / Milestone (not generic umbrella grant code)
+            const vendorMatch = Boolean(
+              vendorQuery &&
+              ((d.vendorId && d.vendorId.toLowerCase() === vendorQuery) ||
+               (d.vendorName && d.vendorName.toLowerCase() === vendorQuery) ||
+               (d.vendorName && (d.vendorName.toLowerCase().includes(vendorQuery) || vendorQuery.includes(d.vendorName.toLowerCase()))))
+            );
+
+            if (vendorMatch && targetPo && !isGenericGrantCode(targetPo)) {
+              if (d.poNumber && d.poNumber.trim().toLowerCase() === targetPo) return true;
+              if (d.id.toLowerCase().includes(targetPo) || d.reviewId.toLowerCase().includes(targetPo)) return true;
             }
 
             return false;
@@ -917,7 +979,7 @@ Additional Instructions: ${input.userInstruction || "Verify contract terms and p
         maxSteps: 6,
         system: systemPrompt,
         prompt: userPrompt,
-        abortSignal: AbortSignal.timeout(2500),
+        abortSignal: AbortSignal.timeout(20000),
       });
       summaryText = response.text || "";
       usedLlm = true;
@@ -1053,13 +1115,18 @@ Additional Instructions: ${input.userInstruction || "Verify contract terms and p
     }
 
     const dupRes = await searchDisbursementsTool.execute(
-      { poNumber: reviewInput.poNumber, campaignId: reviewInput.campaignId } as never,
+      {
+        poNumber: reviewInput.poNumber,
+        campaignId: reviewInput.campaignId,
+        vendorId: reviewInput.vendorName,
+        docHash: reviewInput.documentHash,
+      } as never,
       { toolCallId: "call_dup_fallback", messages: [] } as never
     );
     steps.push({
       step: 2,
       thought: `Autonomous duplicate guard: inspected campaign pool for prior settled milestones referencing PO ${reviewInput.poNumber}.`,
-      toolCalls: [{ toolName: "search_disbursements", args: { poNumber: reviewInput.poNumber } }],
+      toolCalls: [{ toolName: "search_disbursements", args: { poNumber: reviewInput.poNumber, vendorId: reviewInput.vendorName } }],
       toolResults: [{ toolName: "search_disbursements", result: dupRes }],
     });
     if ((dupRes as Record<string, unknown>)?.duplicateFound) {
@@ -1092,7 +1159,7 @@ Additional Instructions: ${input.userInstruction || "Verify contract terms and p
     status = "APPROVED";
   }
 
-  return {
+  const finalResult: ReconciliationAgentResult = {
     status,
     draftInvoiceId,
     invoiceUrl,
@@ -1107,4 +1174,14 @@ Additional Instructions: ${input.userInstruction || "Verify contract terms and p
     ),
     preflightResult: preflightBaseline,
   };
+
+  if (useSemanticCache && cacheKey) {
+    if (semanticCache.size >= MAX_SEMANTIC_CACHE_SIZE) {
+      const oldestKey = semanticCache.keys().next().value;
+      if (oldestKey) semanticCache.delete(oldestKey);
+    }
+    semanticCache.set(cacheKey, { result: finalResult, timestamp: Date.now() });
+  }
+
+  return finalResult;
 }

@@ -30,7 +30,7 @@ In the implemented flow, each recorded donation is tied to a PayPal capture, res
 
 ### 1. Real Inflows: PayPal Orders v2
 - Donors select or customize aid amounts across active emergency relief campaigns.
-- Orders are created via PayPal Orders v2 and captured via [POST /api/donations/:orderId/capture](file:///d:/Nvid/invoice-ready/src/app/api/donations/[orderId]/capture/route.ts).
+- Orders are created via PayPal Orders v2 and captured via [POST /api/donations/:orderId/capture](src/app/api/donations/%5BorderId%5D/capture/route.ts).
 - Webhooks (`PAYMENT.CAPTURE.COMPLETED` and `CHECKOUT.ORDER.APPROVED`) verify real payment captures and append `DONATION_COMPLETED` blocks to the public ledger.
 
 ### 2. SOW Rate Card Preflight & Budget Safeguards
@@ -54,7 +54,7 @@ In the implemented flow, each recorded donation is tied to a PayPal capture, res
 ### 4. Real Outflows: PayPal Payouts & Atomic Pool Reservation
 - Payouts are restricted to admin-registered vetted field contractors.
 - Payout amounts are reserved atomically using PostgreSQL row-level locks (`SELECT ... FOR UPDATE`), preventing concurrent double-spends and pool overdrafts.
-- [POST /api/disbursements/:id/pay](file:///d:/Nvid/invoice-ready/src/app/api/disbursements/[id]/pay/route.ts) dispatches payments via PayPal Payouts API (`/v1/payments/payouts`) with idempotent batch headers (`sender_batch_id`).
+- [POST /api/disbursements/:id/pay](src/app/api/disbursements/%5Bid%5D/pay/route.ts) dispatches payments via PayPal Payouts API (`/v1/payments/payouts`) with idempotent batch headers (`sender_batch_id`).
 
 ### 5. Public Transparency Ledger (Hash Chain)
 - Sequenced, tamper-evident SHA-256 linked blocks stored in Neon PostgreSQL:

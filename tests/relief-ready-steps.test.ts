@@ -2,7 +2,8 @@ import { describe, it, beforeEach } from "node:test";
 import assert from "node:assert/strict";
 import { MockLanguageModelV1 } from "ai/test";
 import { runPreflight } from "../src/lib/preflight";
-import { runReconciliationAgent } from "../src/lib/agent/reconciliation-agent";
+import { runReconciliationAgent, clearSemanticCache } from "../src/lib/agent/reconciliation-agent";
+import { checkAdminAuth } from "../src/lib/security";
 import {
   _clearMemoryDb,
   appendLedger,
@@ -356,6 +357,122 @@ describe("Relief Ready Steps 1-4 Verification Suite", () => {
       assert.ok(dupDisc, "DUPLICATE_BILLING discrepancy must be recorded");
       assert.equal(dupDisc.severity, "BLOCKING");
       assert.equal(result.draftInvoiceId, undefined);
+    });
+
+    it("allows second clean bill from different vendor under same generic campaign grant code", async () => {
+      // 1. Seed prior settled disbursement under generic grant code for Vendor A
+      const priorRevId = `rev_clean_1_${Date.now()}`;
+      await saveReview(priorRevId, { status: "READY" }, "proof_hash_1");
+      await reserveDisbursement({
+        id: `DISB-CLEAN-1-${Date.now()}`,
+        campaignId: "CAMP-MED-01",
+        vendorId: "VEND-APEX-01",
+        reviewId: priorRevId,
+        amountMinor: 250000,
+        proofHash: "proof_hash_1",
+        poNumber: "GRANT-RELIEF-2026-MED01",
+        docHash: "doc_hash_apex_1",
+      });
+
+      // 2. Submit second clean bill under same generic grant code from Vendor B (OmniGlobal)
+      const cleanBillInput: ReviewInput = {
+        vendorName: "OmniGlobal Operations Corp.",
+        buyerName: "Global Emergency Health Corps",
+        buyerEmail: "procurement@gehc.org",
+        poNumber: "GRANT-RELIEF-2026-MED01",
+        campaignId: "CAMP-MED-01",
+        currency: "USD",
+        documentHash: "doc_hash_omni_2",
+        items: [
+          { description: "Portable Field Anesthesia Units", quantity: "1", unitAmount: "3200.00" },
+        ],
+        sourceTerms: {
+          rateCard: [
+            { description: "Portable Field Anesthesia Units", maxUnitRate: "3200.00", maxQuantity: 4 },
+          ],
+        },
+      };
+
+      const result = await runReconciliationAgent({
+        reviewInput: cleanBillInput,
+      });
+
+      // Must NOT be blocked as duplicate
+      assert.notEqual(result.status, "DUPLICATE_DETECTED");
+      assert.equal(result.discrepancies.some((d) => d.category === "DUPLICATE_BILLING"), false);
+    });
+
+    it("serves repeated identical reviews from semantic cache with zero delay", async () => {
+      clearSemanticCache();
+
+      const billInput: ReviewInput = {
+        vendorName: "Apex Cloud Systems & Studio Lab Inc.",
+        buyerName: "Global Emergency Health Corps",
+        buyerEmail: "procurement@gehc.org",
+        poNumber: "GRANT-RELIEF-2026-MED01-CACHE-TEST",
+        campaignId: "CAMP-MED-01",
+        currency: "USD",
+        items: [
+          { description: "Sterile Trauma Surgical Field Packs", quantity: "2", unitAmount: "450.00" },
+        ],
+        sourceTerms: {
+          rateCard: [
+            { description: "Sterile Trauma Surgical Field Packs", maxUnitRate: "450.00", maxQuantity: 50 },
+          ],
+        },
+      };
+
+      // First run: evaluates and caches
+      const firstRun = await runReconciliationAgent({ reviewInput: billInput });
+      assert.equal(firstRun.status, "APPROVED");
+
+      // Second run: served from cache
+      const secondRun = await runReconciliationAgent({ reviewInput: billInput });
+      assert.equal(secondRun.status, "APPROVED");
+      const cacheStep = secondRun.steps.find((s) => s.thought?.includes("semantic cache"));
+      assert.ok(cacheStep, "Must include semantic cache trace on repeat execution");
+    });
+  });
+
+  describe("Admin Auth Security Gate", () => {
+    it("strictly requires configured ADMIN_TOKEN and rejects hardcoded demo token", () => {
+      const originalAdminToken = process.env.ADMIN_TOKEN;
+      try {
+        process.env.ADMIN_TOKEN = "custom_production_secret_token_998877";
+
+        // Request with old demo token must be rejected
+        const fakeReq = new Request("https://example.com/api/reconcile", {
+          headers: { "x-admin-token": "rr_admin_hackathon_2026_reliefready" },
+        });
+        assert.equal(checkAdminAuth(fakeReq), false);
+
+        // Request with actual configured token must pass
+        const validReq = new Request("https://example.com/api/reconcile", {
+          headers: { "x-admin-token": "custom_production_secret_token_998877" },
+        });
+        assert.equal(checkAdminAuth(validReq), true);
+      } finally {
+        if (originalAdminToken !== undefined) {
+          process.env.ADMIN_TOKEN = originalAdminToken;
+        } else {
+          delete process.env.ADMIN_TOKEN;
+        }
+      }
+    });
+
+    it("allows judge hackathon demo token when ADMIN_TOKEN is not configured", () => {
+      const originalAdminToken = process.env.ADMIN_TOKEN;
+      try {
+        delete process.env.ADMIN_TOKEN;
+        const judgeReq = new Request("https://example.com/api/reconcile", {
+          headers: { "x-admin-token": "rr_admin_hackathon_2026_reliefready" },
+        });
+        assert.equal(checkAdminAuth(judgeReq), true);
+      } finally {
+        if (originalAdminToken !== undefined) {
+          process.env.ADMIN_TOKEN = originalAdminToken;
+        }
+      }
     });
   });
 });

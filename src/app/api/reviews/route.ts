@@ -188,14 +188,33 @@ export async function POST(req: NextRequest) {
             input.poCap = (camp.availableMinor / 100).toFixed(2);
           }
 
-          // Check if this PO reference or document hash matches an existing disbursement
+          // Check if this vendor + bill number or document hash matches an existing disbursement
           const disbs = await getDisbursements(camp.id);
           const targetPo = input.poNumber.trim().toLowerCase();
+          const vendorQuery = (input.vendorName || "").trim().toLowerCase();
+          const isGenericGrantCode = (ref: string) => /^grant-relief-\d+-[a-z0-9]+$/i.test(ref.trim());
+
           const dup = disbs.find((d) => {
             if (d.status === "FAILED") return false;
-            if (d.poNumber && d.poNumber.trim().toLowerCase() === targetPo) return true;
-            if (d.id.toLowerCase().includes(targetPo)) return true;
-            if (input.documentHash && d.docHash && d.docHash.toLowerCase() === input.documentHash.toLowerCase()) return true;
+
+            // 1. Real file hash / document hash match
+            if (input.documentHash && d.docHash && d.docHash.toLowerCase() === input.documentHash.toLowerCase()) {
+              return true;
+            }
+
+            // 2. Key on vendor + specific bill/milestone number (not generic umbrella grant code)
+            const vendorMatches = Boolean(
+              vendorQuery &&
+              ((d.vendorId && d.vendorId.toLowerCase() === vendorQuery) ||
+               (d.vendorName && d.vendorName.toLowerCase() === vendorQuery) ||
+               (d.vendorName && (d.vendorName.toLowerCase().includes(vendorQuery) || vendorQuery.includes(d.vendorName.toLowerCase()))))
+            );
+
+            if (vendorMatches && targetPo && !isGenericGrantCode(targetPo)) {
+              if (d.poNumber && d.poNumber.trim().toLowerCase() === targetPo) return true;
+              if (d.id.toLowerCase().includes(targetPo)) return true;
+            }
+
             return false;
           });
 

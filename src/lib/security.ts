@@ -15,24 +15,26 @@ export function verify(value: string, signature: string) {
 }
 
 export function checkAdminAuth(req: Request): boolean {
-  const configuredToken = process.env.ADMIN_TOKEN || "rr_admin_hackathon_2026_reliefready";
-  const demoFallback = "rr_admin_hackathon_2026_reliefready";
   const headerToken =
     req.headers.get("x-admin-token") ||
     req.headers.get("authorization")?.replace(/^Bearer\s+/i, "") ||
     "";
   if (!headerToken) return false;
 
-  const checkMatch = (target: string) => {
-    try {
-      const bufA = Buffer.from(headerToken);
-      const bufB = Buffer.from(target);
-      if (bufA.length !== bufB.length) return false;
-      return timingSafeEqual(bufA, bufB);
-    } catch {
-      return false;
-    }
-  };
+  // Strict enforcement: if ADMIN_TOKEN is set in environment, only accept that token.
+  // Fall back to judge hackathon demo token only when ADMIN_TOKEN is unset.
+  const configuredToken = process.env.ADMIN_TOKEN;
+  const expectedToken =
+    configuredToken && configuredToken.trim()
+      ? configuredToken.trim()
+      : "rr_admin_hackathon_2026_reliefready";
 
-  return checkMatch(configuredToken) || checkMatch(demoFallback);
+  try {
+    const bufA = Buffer.from(headerToken);
+    const bufB = Buffer.from(expectedToken);
+    if (bufA.length !== bufB.length) return false;
+    return timingSafeEqual(bufA, bufB);
+  } catch {
+    return false;
+  }
 }
