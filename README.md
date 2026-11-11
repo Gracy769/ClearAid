@@ -39,6 +39,10 @@ On the [live demo](https://invoice-ready.graceperez769.workers.dev):
 
 Payment and payout actions require configured PayPal Sandbox credentials and an authorized admin token. No live funds should be used for this demo.
 
+### Postman health check
+
+Import [`postman/ClearAid API Health.postman_collection.json`](postman/ClearAid%20API%20Health.postman_collection.json) into Postman and run the **Public API health** request. It checks the read-only `/api/status` endpoint for HTTP success, Sandbox mode, and a live database connection; it does not create or change payments.
+
 ## What AI does—and what it does not
 
 The AI uses Google Gemini through the Vercel AI SDK and purpose-built reconciliation tools. It can search for prior disbursements, organize invoice/SOW evidence, and explain issues. Deterministic policy checks remain authoritative for arithmetic, SOW limits, duplicate controls, and campaign caps. Human approval remains a separate step before a payment action.
