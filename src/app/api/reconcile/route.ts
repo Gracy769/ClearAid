@@ -37,7 +37,8 @@ export async function POST(req: NextRequest) {
         reviewInput = {
           ...reviewInput,
           campaignId: campaign.id,
-          poCap: campaign.availableMinor !== undefined ? (campaign.availableMinor / 100).toFixed(2) : reviewInput.poCap,
+          // Preserve the invoice's stated PO ceiling. The campaign's remaining
+          // donor pool is enforced separately by disbursement reservation.
           sourceTerms: {
             ...reviewInput.sourceTerms,
             rateCard: campaign.sowRateCard || reviewInput.sourceTerms?.rateCard,
