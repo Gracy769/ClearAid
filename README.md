@@ -1,5 +1,6 @@
 <div align="center">
-  <h1><img src="public/clearaid-mark.svg" alt="ClearAid logo" width="48" height="48" align="middle" /> ClearAid</h1>
+  <img src="public/clearaid-mark.svg" alt="ClearAid logo" width="92" height="92">
+  <h1>ClearAid</h1>
   <h2>Live Video Walkthrough</h2>
 </div>
 
