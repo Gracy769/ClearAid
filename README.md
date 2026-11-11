@@ -1,4 +1,4 @@
-<h1><img src="public/clearaid-mark.svg" alt="ClearAid logo" width="40" height="40" align="middle" />&nbsp; ClearAid</h1>
+<h1><img src="public/clearaid-mark.svg" alt="ClearAid logo" width="40" height="40" align="middle" /> ClearAid</h1>
 
 **Evidence-backed invoice review and auditable PayPal Sandbox disbursements for humanitarian procurement.**
 
