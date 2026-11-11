@@ -132,6 +132,17 @@ function Icon({ name, size = 18 }: { name: IconName; size?: number }) {
   return <svg {...common}>{paths[name]}</svg>;
 }
 
+function ClearAidMark({ size = 24 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 48 48" fill="none" aria-hidden="true">
+      <path d="M31.6 13.2a13.5 13.5 0 1 0 0 21.6" stroke="currentColor" strokeWidth="3.6" strokeLinecap="round" />
+      <path d="M13 24h12.2" stroke="currentColor" strokeWidth="3.2" strokeLinecap="round" />
+      <path d="m22.2 19.5 4.5 4.5-4.5 4.5" stroke="#ffca05" strokeWidth="3.2" strokeLinecap="round" strokeLinejoin="round" />
+      <circle cx="34.5" cy="24" r="3.5" fill="#ffca05" />
+    </svg>
+  );
+}
+
 const empty: ReviewInput = {
   vendorName: "",
   buyerName: "",
@@ -1056,6 +1067,17 @@ function computePolicyExceptions(
   return exceptions;
 }
 
+function exceptionForFinding(code: string, input: ReviewInput, exceptions: PolicyException[]) {
+  const lineMatch = code.match(/^(?:rate_exceeds_sow|unauthorized_item|quantity_exceeds_sow)_(\d+)$/);
+  if (lineMatch) {
+    const item = input.items[Number(lineMatch[1])];
+    if (item) return exceptions.find((exception) => exception.scopeItem === item.description);
+  }
+  if (code === "duplicate_invoice_detected") return exceptions.find((exception) => exception.rule.includes("Duplicate"));
+  if (code === "po_cap_exceeded") return exceptions.find((exception) => exception.rule.includes("Budget Cap"));
+  return undefined;
+}
+
 function AuditPackageModal({
   review,
   reviewId,
@@ -1304,6 +1326,9 @@ export default function Home() {
 
   // Relief campaigns & public ledger state
   const [campaigns, setCampaigns] = useState<ReliefCampaign[]>(DEFAULT_CAMPAIGNS);
+  const [campaignsLoading, setCampaignsLoading] = useState(true);
+  const [campaignsError, setCampaignsError] = useState<string | null>(null);
+  const [campaignsUpdatedAt, setCampaignsUpdatedAt] = useState<string | null>(null);
   const [disbursements, setDisbursements] = useState<PublicDisbursementRecord[]>(DEFAULT_DISBURSEMENTS);
   const [selectedCampaignId, setSelectedCampaignId] = useState<string>("CAMP-MED-01");
   const [viewingDisbursement, setViewingDisbursement] = useState<PublicDisbursementRecord | null>(null);
@@ -1356,6 +1381,7 @@ export default function Home() {
   const [sent, setSent] = useState(false);
   const [busy, setBusy] = useState(false);
   const [paypalConfigured, setPaypalConfigured] = useState<boolean | null>(null);
+  const [neonConnected, setNeonConnected] = useState<boolean | null>(null);
   const [notice, setNotice] = useState<{ kind: "error" | "success" | "info"; text: string } | null>(null);
 
   useEffect(() => {
@@ -1443,6 +1469,7 @@ export default function Home() {
         if (!response.ok) throw new Error(body.error || "The review could not be completed.");
         setData(body.review.input);
         setReview(body.review);
+        setActiveStep(1);
         setReviewId(body.reviewId);
         setApprovalToken(body.approvalToken);
         setAiUsed(Boolean(body.aiUsed));
@@ -1463,14 +1490,21 @@ export default function Home() {
   }
 
   const refreshCampaigns = async () => {
+    setCampaignsLoading(true);
+    setCampaignsError(null);
     try {
       const res = await fetch("/api/campaigns");
       const json = await res.json();
       if (res.ok && json.ok && Array.isArray(json.campaigns)) {
         setCampaigns(json.campaigns);
+        setCampaignsUpdatedAt(new Date().toISOString());
+      } else {
+        throw new Error(json.error || "Campaign data could not be refreshed.");
       }
-    } catch {
-      // Retain seed
+    } catch (error) {
+      setCampaignsError(error instanceof Error ? error.message : "Campaign data could not be refreshed.");
+    } finally {
+      setCampaignsLoading(false);
     }
   };
 
@@ -1490,25 +1524,61 @@ export default function Home() {
     }
   };
 
+  function resetDemoWorkspace() {
+    invalidateReview();
+    setData(empty);
+    setFile(null);
+    setActiveScenarioId(null);
+    setSelectedCampaignId("CAMP-MED-01");
+    setSelectedVendorId("VEND-APEX-01");
+    setActiveStep(0);
+    setActivePlatformTab("campaigns");
+    setNotice({
+      kind: "info",
+      text: "Demo workspace cleared. Saved PayPal Sandbox activity and the append-only public ledger are preserved.",
+    });
+    void refreshCampaigns();
+    void refreshLedger();
+  }
+
   useEffect(() => {
     let isMounted = true;
-    fetch("/api/status")
-      .then((response) => response.json())
-      .then((status: { paypalConfigured?: boolean }) => {
-        if (isMounted) setPaypalConfigured(status.paypalConfigured === true);
+    const checkServiceStatus = () => fetch("/api/status")
+      .then((response) => {
+        if (!response.ok) throw new Error("Service status request failed");
+        return response.json();
+      })
+      .then((status: { paypalConfigured?: boolean; databaseConnected?: boolean }) => {
+        if (!isMounted) return;
+        setPaypalConfigured(status.paypalConfigured === true);
+        setNeonConnected(status.databaseConnected === true);
       })
       .catch(() => {
-        if (isMounted) setPaypalConfigured(false);
+        if (isMounted) {
+          setPaypalConfigured(false);
+          setNeonConnected(false);
+        }
       });
+    void checkServiceStatus();
+    const statusInterval = window.setInterval(() => void checkServiceStatus(), 60_000);
 
     fetch("/api/campaigns")
       .then((r) => r.json())
       .then((json) => {
         if (isMounted && json.ok && Array.isArray(json.campaigns)) {
           setCampaigns(json.campaigns);
+          setCampaignsError(null);
+          setCampaignsUpdatedAt(new Date().toISOString());
+        } else if (isMounted) {
+          setCampaignsError(json.error || "Campaign data could not be loaded.");
         }
       })
-      .catch(() => {});
+      .catch(() => {
+        if (isMounted) setCampaignsError("Could not reach the live campaign database. Please retry.");
+      })
+      .finally(() => {
+        if (isMounted) setCampaignsLoading(false);
+      });
 
     fetch("/api/ledger")
       .then((r) => r.json())
@@ -1522,6 +1592,7 @@ export default function Home() {
 
     return () => {
       isMounted = false;
+      window.clearInterval(statusInterval);
     };
   }, []);
 
@@ -2133,7 +2204,7 @@ export default function Home() {
       <header className="topbar">
         <div className="topbar-inner">
           <a className="brand" href="#main" aria-label="ClearAid home">
-            <span className="brand-mark" aria-hidden="true"><Icon name="shield" size={23} /></span>
+            <span className="brand-mark"><ClearAidMark size={27} /></span>
             <div>
               <span className="brand-name">ClearAid</span>
             </div>
@@ -2145,6 +2216,14 @@ export default function Home() {
           <span className="sandbox-badge">
             <span className="sandbox-dot" />
             {paypalConfigured === true ? "SANDBOX CONNECTED" : "SANDBOX"}
+          </span>
+          <span
+            className={`neon-status${neonConnected === true ? " is-connected" : neonConnected === false ? " is-offline" : " is-checking"}`}
+            role="status"
+            aria-live="polite"
+          >
+            <span className="neon-status-dot" />
+            {neonConnected === true ? "NEON LIVE" : neonConnected === false ? "NEON OFFLINE" : "CHECKING NEON"}
           </span>
         </div>
       </header>
@@ -2162,6 +2241,15 @@ export default function Home() {
             <Icon name="shield" size={13} />
             <span>AI organizes &amp; explains evidence. Deterministic controls make the payment decision.</span>
           </div>
+          <button
+            type="button"
+            className="demo-reset-button"
+            onClick={resetDemoWorkspace}
+            disabled={busy || donationBusy || globalBatchBusy}
+            title="Clear this browser's demo form and review state. Saved sandbox transactions stay in the ledger."
+          >
+            Reset demo
+          </button>
         </div>
       </div>
 
@@ -2291,6 +2379,69 @@ export default function Home() {
                 </p>
               </div>
 
+              <section className="guided-demo-panel" aria-labelledby="guided-demo-title">
+                <div className="guided-demo-heading">
+                  <div>
+                    <h2 id="guided-demo-title">See a payment check from start to finish.</h2>
+                    <p>A short, repeatable walkthrough using a synthetic invoice. No live funds move.</p>
+                  </div>
+                  <span className="guided-demo-badge">SANDBOX WALKTHROUGH</span>
+                </div>
+                <ol className="guided-demo-steps">
+                  <li>
+                    <span className={`guided-demo-number${activeScenarioId === "clean" ? " is-done" : ""}`}>1</span>
+                    <div>
+                      <strong>Load a clean invoice</strong>
+                      <p>Start with an approved medical supply purchase.</p>
+                      <button type="button" className="guided-demo-action" onClick={() => {
+                        setActivePlatformTab("disburse");
+                        void loadScenario(DEMO_SCENARIOS[0]);
+                      }}>Load sample</button>
+                    </div>
+                  </li>
+                  <li>
+                    <span className={`guided-demo-number${review ? " is-done" : ""}`}>2</span>
+                    <div>
+                      <strong>Run deterministic preflight</strong>
+                      <p>Compare the invoice with the grant scope and rate card.</p>
+                      <button type="button" className="guided-demo-action" disabled={busy} onClick={() => {
+                        setActivePlatformTab("disburse");
+                        void loadScenario(DEMO_SCENARIOS[0], true);
+                      }}>{busy ? "Checking…" : "Run clean check"}</button>
+                    </div>
+                  </li>
+                  <li>
+                    <span className={`guided-demo-number${activePlatformTab === "ledger" ? " is-done" : ""}`}>3</span>
+                    <div>
+                      <strong>Inspect the public trail</strong>
+                      <p>Review the hash-linked donation and payout records.</p>
+                      <button type="button" className="guided-demo-action" onClick={() => {
+                        setActivePlatformTab("ledger");
+                        void refreshLedger();
+                      }}>Open ledger</button>
+                    </div>
+                  </li>
+                </ol>
+              </section>
+
+              <section className="proof-summary" aria-labelledby="proof-summary-title">
+                <h2 id="proof-summary-title">What this demo proves</h2>
+                <ul>
+                  <li><strong>Scope and rates:</strong> invoice lines are checked against the campaign’s approved work.</li>
+                  <li><strong>Hard controls:</strong> overrates, duplicates, and budget breaches are blocked before PayPal approval.</li>
+                  <li><strong>Traceability:</strong> recorded actions can be checked in the public hash-linked ledger.</li>
+                </ul>
+              </section>
+
+              {campaignsLoading && (
+                <div className="notice notice-info" role="status">Refreshing live campaign totals from Neon…</div>
+              )}
+              {campaignsError && (
+                <div className="notice notice-error" role="alert">
+                  {campaignsError} <button type="button" className="button-secondary" onClick={refreshCampaigns}>Retry</button>
+                </div>
+              )}
+
               {/* TELEMETRY STRIP */}
               <div className="metric-strip">
                 <div className="metric-card">
@@ -2322,6 +2473,16 @@ export default function Home() {
                   </div>
                   <div className="metric-card-sub">Available for verified operations</div>
                 </div>
+              </div>
+
+              <div className="campaign-data-status">
+                <span className={`campaign-data-indicator${neonConnected === true ? " is-live" : neonConnected === false ? " is-offline" : ""}`} />
+                <strong>{neonConnected === true ? "Neon database connected" : neonConnected === false ? "Neon connection unavailable" : "Checking Neon connection"}</strong>
+                <span className="campaign-data-divider" />
+                <span>{campaignsUpdatedAt ? `Campaigns refreshed ${new Date(campaignsUpdatedAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit", second: "2-digit" })}` : "Waiting for live campaign data"}</span>
+                <button type="button" className="campaign-refresh-button" onClick={() => void refreshCampaigns()} disabled={campaignsLoading}>
+                  {campaignsLoading ? "Refreshing…" : "Refresh data"}
+                </button>
               </div>
 
               {/* CAMPAIGN CARDS LIST */}
@@ -3154,15 +3315,44 @@ export default function Home() {
 
                     {review.findings.length > 0 && (
                       <ul className="findings-list">
-                        {review.findings.map((finding, index) => (
-                          <li key={`${finding.code}-${index}`} className={`finding finding-${finding.severity}`}>
-                            <Icon name={finding.severity === "block" ? "alert" : "file"} size={18} />
-                            <div>
-                              <strong>{finding.severity === "block" ? "Hold" : "Review"}</strong>
-                              <p>{finding.message}</p>
-                            </div>
-                          </li>
-                        ))}
+                        {review.findings.map((finding, index) => {
+                          const exception = exceptionForFinding(finding.code, review.input, blockingExceptions);
+                          return (
+                            <li key={`${finding.code}-${index}`} className={`finding finding-${finding.severity}`}>
+                              <Icon name={finding.severity === "block" ? "alert" : "file"} size={18} />
+                              <div>
+                                <strong>{finding.severity === "block" ? "Hold" : "Review"}</strong>
+                                <p>{finding.message}</p>
+                                <details className="finding-evidence">
+                                  <summary>How this check was assessed</summary>
+                                  {exception && (
+                                    <dl className="finding-evidence-values">
+                                      <div><dt>Policy rule</dt><dd>{exception.rule}</dd></div>
+                                      <div><dt>Invoice value</dt><dd>{exception.submitted}</dd></div>
+                                      <div><dt>Approved limit</dt><dd>{exception.approvedCeiling}</dd></div>
+                                      <div><dt>Difference</dt><dd>{exception.variance}</dd></div>
+                                      <div><dt>Resolution</dt><dd>{exception.resolution}</dd></div>
+                                    </dl>
+                                  )}
+                                  {finding.refs?.length ? (
+                                    <div className="finding-evidence-sources">
+                                      {finding.refs.map((ref, refIndex) => (
+                                        <figure key={`${ref.document}-${refIndex}`}>
+                                          <blockquote>{ref.quote}</blockquote>
+                                          <figcaption>{ref.document}{ref.page ? ` · page ${ref.page}` : ""}</figcaption>
+                                        </figure>
+                                      ))}
+                                    </div>
+                                  ) : !exception ? (
+                                    <p className="finding-evidence-note">
+                                      Rule <code>{finding.code}</code> was evaluated using the invoice fields and selected grant controls. No quoted source passage was attached to this finding.
+                                    </p>
+                                  ) : null}
+                                </details>
+                              </div>
+                            </li>
+                          );
+                        })}
                       </ul>
                     )}
 
@@ -4049,7 +4239,7 @@ export default function Home() {
               </section>
 
               <footer className="workspace-footer">
-                <span className="footer-mark" aria-hidden="true"><Icon name="shield" size={14} /></span>
+                <span className="footer-mark"><ClearAidMark size={15} /></span>
                 <span>ClearAid</span>
                 <span className="footer-divider" />
                 <span>Evidence before you bill.</span>
@@ -4120,7 +4310,7 @@ export default function Home() {
               </section>
 
               <footer className="workspace-footer">
-                <span className="footer-mark" aria-hidden="true"><Icon name="shield" size={14} /></span>
+                <span className="footer-mark"><ClearAidMark size={15} /></span>
                 <span>ClearAid</span>
                 <span className="footer-divider" />
                 <span>Evidence-based humanitarian aid.</span>
@@ -4183,7 +4373,7 @@ export default function Home() {
               </section>
 
               <footer className="workspace-footer">
-                <span className="footer-mark" aria-hidden="true"><Icon name="shield" size={14} /></span>
+                <span className="footer-mark"><ClearAidMark size={15} /></span>
                 <span>ClearAid</span>
                 <span className="footer-divider" />
                 <span>Evidence-based humanitarian aid.</span>

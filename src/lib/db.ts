@@ -532,7 +532,6 @@ export async function appendLedger(
 export async function getLedgerEntries(limit = 50, offset = 0): Promise<{ entries: LedgerEntry[]; headHash: string }> {
   if (process.env.DATABASE_URL) {
     try {
-      await ensureSchema();
       const sql = database();
       const rows = await sql`
         SELECT id, kind, ref_id, campaign_id, payload, payload_hash, prev_hash, entry_hash, created_at
@@ -556,8 +555,8 @@ export async function getLedgerEntries(limit = 50, offset = 0): Promise<{ entrie
       }));
 
       return { entries, headHash };
-    } catch {
-      // Fall through to memory
+    } catch (error) {
+      throw error;
     }
   }
 
@@ -700,7 +699,6 @@ export async function verifyLedgerChain(): Promise<{
 export async function getCampaignsWithAggregates(): Promise<ReliefCampaign[]> {
   if (process.env.DATABASE_URL) {
     try {
-      await ensureSchema();
       const sql = database();
       const rows = await sql`
         SELECT
@@ -742,8 +740,8 @@ export async function getCampaignsWithAggregates(): Promise<ReliefCampaign[]> {
         sowRateCard: r.sow_rate_card as SOWRateCardItem[],
         sowHash: (r.sow_hash as string) || undefined,
       }));
-    } catch {
-      // Fall through to memory
+    } catch (error) {
+      throw error;
     }
   }
 
@@ -1021,7 +1019,6 @@ export async function releaseDonationCapture(id: string): Promise<void> {
 export async function getVendors(): Promise<Vendor[]> {
   if (process.env.DATABASE_URL) {
     try {
-      await ensureSchema();
       const sql = database();
       const rows = await sql`
         SELECT id, name, payout_email, status, registered_by, created_at
@@ -1036,8 +1033,8 @@ export async function getVendors(): Promise<Vendor[]> {
         registeredBy: (r.registered_by as string) || undefined,
         createdAt: (r.created_at as Date).toISOString(),
       }));
-    } catch {
-      // Fall through to memory
+    } catch (error) {
+      throw error;
     }
   }
 
