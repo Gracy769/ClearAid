@@ -1,0 +1,15 @@
+repos:
+  - repo: local
+    hooks:
+      - id: eslint
+        name: ESLint
+        entry: npm run lint
+        language: system
+        pass_filenames: false
+        files: ^(src|tests)/.*\.(js|jsx|mjs|ts|tsx)$
+      - id: git-diff-check
+        name: Git whitespace and conflict check
+        entry: git diff --cached --check
+        language: system
+        pass_filenames: false
+        always_run: true
