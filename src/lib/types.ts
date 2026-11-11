@@ -60,7 +60,14 @@ export type ReliefCampaign = {
   id: string;
   title: string;
   subtitle: string;
-  category: "Medical" | "Water & Sanitation" | "Shelter & Power" | "Food Logistics" | "Emergency Aid";
+  category:
+    | "Medical"
+    | "Water & Sanitation"
+    | "Shelter & Power"
+    | "Food Logistics"
+    | "Emergency Aid"
+    | "Pediatric & Nutrition"
+    | "Search & Rescue";
   targetMinor: number;
   raisedMinor: number;
   disbursedMinor: number;

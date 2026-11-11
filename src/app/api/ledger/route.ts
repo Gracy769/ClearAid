@@ -1,13 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getLedgerEntries } from "@/lib/db";
 
-export const dynamic = "force-dynamic";
-
 export async function GET(req: NextRequest) {
-  try {
-    const limit = Math.min(100, Math.max(1, Number(req.nextUrl.searchParams.get("limit") || 50)));
-    const offset = Math.max(0, Number(req.nextUrl.searchParams.get("offset") || 0));
+  const limit = Math.min(100, Math.max(1, Number(req.nextUrl.searchParams.get("limit") || 50)));
+  const offset = Math.max(0, Number(req.nextUrl.searchParams.get("offset") || 0));
 
+  try {
     const { entries, headHash } = await getLedgerEntries(limit, offset);
     return NextResponse.json({
       ok: true,

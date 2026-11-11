@@ -1,131 +1,110 @@
 # ClearAid
 
-**Evidence-first humanitarian procurement & verified PayPal disbursements**
-*Built for the PayPal AI Developer Challenge 2026*
+**Evidence-backed invoice review and auditable PayPal Sandbox disbursements for humanitarian procurement.**
 
-**Live Deployment:** [https://invoice-ready.graceperez769.workers.dev](https://invoice-ready.graceperez769.workers.dev)
+[Live demo](https://invoice-ready.graceperez769.workers.dev) · [Source repository](https://github.com/Gracy769/invoice-ready) · Built for the PayPal AI Hackathon 2026
 
----
+## The problem
 
-## Overview
+Relief operators must check supplier invoices against approved work, vendor rates, grant limits, and prior payments before funds are released. Manual review makes duplicate, out-of-scope, and over-budget charges harder to catch and explain.
 
-ClearAid is a control layer between humanitarian funding and field procurement. It does not claim to verify that goods physically arrived; it makes the financial approval decision auditable by combining **PayPal Orders v2** funding, deterministic **Statement of Work (SOW) preflight rate-card checks**, an **Autonomous ReAct AI AP Reconciliation Agent**, **PayPal Payouts** to registered vendors, and an immutable **SHA-256 public transparency ledger** stored in Neon Serverless PostgreSQL.
+ClearAid gives an operator one review path for that work. It combines PayPal Sandbox payment flows, deterministic invoice controls, an AI reconciliation assistant, a human approval step, and a public hash-linked audit ledger.
 
-The hackathon demo uses PayPal Sandbox data and seeded example campaigns. The product is designed for a real pilot with one NGO or pooled-fund operator, where the operator supplies approved SOWs, registered vendors, and invoice evidence. The first measurable outcome is fewer duplicate, out-of-scope, and over-cap invoices reaching payment approval—not a claim of zero fraud.
+The demo uses synthetic campaigns, invoices, and vendors. It demonstrates financial controls; it does **not** verify that goods physically arrived or claim to eliminate fraud. A real pilot would use an NGO's approved SOWs, vendor registry, and review policies.
 
-## Real-world pilot path
+## How it works
 
-1. **Start with one operator, not the whole aid sector.** Partner with one NGO procurement or grants team that already has SOWs, vendor rosters, and invoice review pain.
-2. **Import their evidence.** Model each approved budget as a versioned SOW: allowed items, unit ceilings, quantities, currency, and budget owner. Keep the source document hash beside the rules.
-3. **Run in shadow mode.** For two weeks, ClearAid reviews real historical or already-approved invoices without controlling payment. Measure duplicate matches, blocked exceptions, reviewer time, and false positives.
-4. **Gate one payment rail.** After the operator signs off on the rules, enable PayPal Sandbox first, then production payouts only with dual approval, verified webhook events, and an exportable audit package.
+1. **Fund a relief campaign.** A donor starts a PayPal Orders v2 Sandbox checkout. A completed capture is recorded against the campaign and added to the ledger.
+2. **Prepare an invoice review.** Choose a campaign and a registered vendor, enter invoice details, and attach searchable source evidence such as a PO or SOW.
+3. **Run deterministic checks.** ClearAid checks required fields, integer minor-unit arithmetic, campaign and vendor consistency, SOW items and ceilings, duplicate billing, and the remaining grant pool.
+4. **Ask the AI agent to reconcile.** The Gemini-backed agent organizes evidence, checks prior disbursements, and explains discrepancies. It cannot clear a deterministic block or authorize a payment by itself.
+5. **Review and approve.** A human reviews the result. Eligible actions use PayPal Sandbox; completed events and decisions are written to the public transparency ledger.
+6. **Verify the ledger.** Each entry links to its predecessor with SHA-256 hashes, and the app can recompute the chain from genesis to head.
 
-The pilot should report four numbers: invoice review time, percentage of invoices requiring manual rework, value of blocked exceptions, and percentage of approved payments with complete evidence. Those numbers make the product's impact testable.
+## Demo walkthrough
 
-In the implemented flow, each recorded donation is tied to a PayPal capture, reservations are locked atomically against over-subscription, and a disbursement cannot proceed until the vendor bill clears the configured contract checks and agent gate.
+On the [live demo](https://invoice-ready.graceperez769.workers.dev):
 
----
+1. Open **Invoice review & payouts** and choose a campaign.
+2. Use a grant-specific demo case. The clean invoice demonstrates an eligible review; over-rate, duplicate, unauthorized-item, and budget-overrun cases demonstrate hard blocks.
+3. Run preflight, then the reconciliation agent, and inspect its evidence and explanation.
+4. Open **Public Transparency Ledger** to inspect entries and use **Verify Hash Chain**.
+5. On **Active Relief Campaigns**, use the PayPal Sandbox donation checkout if you have a Sandbox buyer account.
 
-## Key Pillars & PayPal Integrations
+Payment and payout actions require configured PayPal Sandbox credentials and an authorized admin token. No live funds should be used for this demo.
 
-### 1. Real Inflows: PayPal Orders v2
-- Donors select or customize aid amounts across active emergency relief campaigns.
-- Orders are created via PayPal Orders v2 and captured via [POST /api/donations/:orderId/capture](src/app/api/donations/%5BorderId%5D/capture/route.ts).
-- Webhooks (`PAYMENT.CAPTURE.COMPLETED` and `CHECKOUT.ORDER.APPROVED`) verify real payment captures and append `DONATION_COMPLETED` blocks to the public ledger.
+## What AI does—and what it does not
 
-### 2. SOW Rate Card Preflight & Budget Safeguards
-- Each humanitarian campaign maintains an approved Statement of Work (SOW) rate card (e.g. trauma surgical packs, water purification skids, shelter generators) with maximum allowable unit rates and quantities.
-- Deterministic preflight checks enforce:
-  - Exact minor-unit (integer cents) arithmetic to prevent fractional cent drift.
-  - SOW item matching with tight semantic overlap checks (`unauthorized_item`).
-  - Unit rate ceiling enforcement (`rate_exceeds_sow`).
-  - Allocation quota enforcement (`quantity_exceeds_sow`).
-  - Campaign uncommitted pool ceiling (`po_cap_exceeded`).
+The AI uses Google Gemini through the Vercel AI SDK and purpose-built reconciliation tools. It can search for prior disbursements, organize invoice/SOW evidence, and explain issues. Deterministic policy checks remain authoritative for arithmetic, SOW limits, duplicate controls, and campaign caps. Human approval remains a separate step before a payment action.
 
-### 3. Autonomous ReAct AI AP Reconciliation Agent
-- Powered by Gemini via the Vercel AI SDK with a multi-step deliberation loop.
-- Tools:
-  - `search_disbursements`: Queries campaign records to prevent duplicate billing and double payouts.
-  - `audit_po_terms`: Re-verifies integer minor math, line items, and SOW contract compliance.
-  - `record_discrepancy`: Formally documents blocking contract violations.
-  - `prepare_approval`: Certifies clean bills with a cryptographic preflight token.
-- Gated Approval: Human procurement officers cannot disburse funds unless the autonomous agent explicitly returns `APPROVED`.
+## Stack
 
-### 4. Real Outflows: PayPal Payouts & Atomic Pool Reservation
-- Payouts are restricted to admin-registered vetted field contractors.
-- Payout amounts are reserved atomically using PostgreSQL row-level locks (`SELECT ... FOR UPDATE`), preventing concurrent double-spends and pool overdrafts.
-- [POST /api/disbursements/:id/pay](src/app/api/disbursements/%5Bid%5D/pay/route.ts) dispatches payments via PayPal Payouts API (`/v1/payments/payouts`) with idempotent batch headers (`sender_batch_id`).
+- Next.js App Router, React, and TypeScript
+- Cloudflare Workers with the Vinext adapter
+- Neon Serverless PostgreSQL
+- PayPal Orders v2, Payouts, Invoicing, and webhook verification (Sandbox)
+- Google Gemini via the Vercel AI SDK
+- SHA-256 linked audit records
 
-### 5. Public Transparency Ledger (Hash Chain)
-- Sequenced, tamper-evident SHA-256 linked blocks stored in Neon PostgreSQL:
-  $$\text{entry\_hash} = \text{SHA-256}(\text{prev\_hash} + \text{payload\_hash} + \text{kind} + \text{ref\_id})$$
-- Publicly auditable at `GET /api/ledger`.
-- Cryptographically verified from GENESIS to HEAD at `GET /api/ledger/verify`.
+## Run locally
 
----
-
-## Tech Stack
-
-- **Runtime & Hosting:** Cloudflare Workers (Edge Serverless) via [vinext](https://github.com/vinext/vinext)
-- **Framework:** Next.js 16 (App Router + React Server Components)
-- **Database:** Neon Serverless PostgreSQL with connection pooling
-- **AI Agent:** Google Gemini 2.0 Flash via Vercel AI SDK
-- **Payment Infrastructure:** PayPal Orders v2, PayPal Payouts, PayPal Invoicing, PayPal Webhooks
-- **Testing:** Node.js native test runner + `tsx` (250+ unit and adversarial stress tests)
-
----
-
-## Running Locally
+Requirements: Node.js 22.18 or newer, npm, a Neon database, Google Gemini API key, and PayPal Sandbox app credentials for payment actions.
 
 ```bash
-# 1. Install dependencies
 npm install
-
-# 2. Configure environment
-copy .env.example .env.local
-
-# 3. Run development server
+Copy-Item .env.example .env.local
+# Fill in the environment values below, then:
 npm run dev
 ```
 
-### Environment Variables (`.env.local`)
+The app starts at `http://localhost:3000`. It can render with seeded demo data without external credentials, but persistent storage, AI reconciliation, and PayPal actions require their respective values.
 
-| Variable | Description |
-|---|---|
-| `DATABASE_URL` | Neon Serverless PostgreSQL connection string |
-| `APP_SECRET` | HMAC secret for signing preflight review approvals |
-| `ADMIN_TOKEN` | Bearer token for authorized procurement actions |
-| `PAYPAL_CLIENT_ID` | PayPal Sandbox REST App Client ID |
-| `PAYPAL_CLIENT_SECRET` | PayPal Sandbox REST App Secret |
-| `PAYPAL_WEBHOOK_ID` | Registered PayPal webhook ID |
-| `GEMINI_API_KEY` | Google Gemini API Key |
-| `GEMINI_MODEL` | `gemini-2.0-flash` |
+### Environment variables
 
----
+| Variable | Required for | Notes |
+| --- | --- | --- |
+| `DATABASE_URL` | Persistent records and ledger | Neon PostgreSQL connection string. |
+| `APP_SECRET` | Signed review approvals | Use a long, random secret. |
+| `ADMIN_TOKEN` | Admin-only review and payout actions | Set a private value; enter the same value in the app's admin token field. |
+| `PAYPAL_CLIENT_ID` | PayPal Sandbox | REST app client ID. |
+| `PAYPAL_CLIENT_SECRET` | PayPal Sandbox | REST app secret. |
+| `PAYPAL_SANDBOX` | PayPal environment | Keep `true` for the hackathon demo. |
+| `PAYPAL_API_BASE_URL` | PayPal environment | Sandbox API base URL. |
+| `PAYPAL_WEBHOOK_ID` | Webhook signature verification | Optional until a Sandbox webhook is registered. |
+| `GEMINI_API_KEY` | AI extraction and reconciliation | Google AI Studio API key. |
+| `GEMINI_MODEL` | AI model selection | Defaults to `gemini-3.8-flash`; the extraction path falls back to `gemini-2.5-flash` if needed. |
+| `APP_URL` | PayPal return and cancel links | Public app URL for deployed environments. |
 
-## Test & Verification Suites
+Never commit `.env.local`, API keys, PayPal credentials, or production tokens. `.env.example` contains names and safe defaults only.
+
+## Deploy to Cloudflare
+
+The repository uses `cloudflare.config.ts` and the Cloudflare CLI. Sign in with `cf auth login` and configure the secret bindings in Cloudflare before deploying.
 
 ```bash
-# Run all tests (offline, adversarial, and integration suites)
-npm test
+npx cf auth whoami
+npx cf deploy --dry-run
+npx cf deploy --message "ClearAid hackathon release"
+```
 
-# Run ESLint (0 errors, 0 warnings enforced)
+Required Worker secrets: `DATABASE_URL`, `APP_SECRET`, `ADMIN_TOKEN`, `PAYPAL_CLIENT_ID`, `PAYPAL_CLIENT_SECRET`, and `GEMINI_API_KEY`. Set `PAYPAL_WEBHOOK_ID` if webhook verification is enabled. Non-secret Sandbox settings and the public app URL are declared in `cloudflare.config.ts`.
+
+## Checks
+
+```bash
 npm run lint
-
-# Build edge bundle for Cloudflare Workers
+npm test
+npm run build
 npm run build:vinext
 ```
 
----
+## Project boundaries
 
-## Hackathon Judge Notes
-
-- **Admin Access:** To test administrative payout and SOW review actions, open the admin panel or send the header `x-admin-token: rr_admin_relief_judge_2026_9x8f`.
-- **Sandbox Environment:** All payments and payouts run in PayPal Sandbox mode. The UI labels this clearly; no live donor money is moved by the demo.
-- **Auditing a Bill:** Under the **Audit & Disburse** tab, upload a searchable statement of work or use the pre-filled disaster response invoice. Click **Run Preflight**, then click **Run Autonomous AI Agent Audit**. The AI agent will inspect the campaign rate card and search for duplicate payouts before unlocking the **Approve & Pay via PayPal Payouts** action.
-
----
+- Sandbox and synthetic data are for demonstration, not real fundraising or real disbursement.
+- Humanitarian operators remain responsible for vetting vendors, approving SOWs, and authorizing payments.
+- The ledger makes recorded events tamper-evident; it cannot establish whether a physical delivery occurred.
+- A production pilot needs operator-specific policies, verified identity and vendor onboarding, human dual control, operational monitoring, and legal/compliance review.
 
 ## License
 
-MIT
+MIT. See [LICENSE](LICENSE).

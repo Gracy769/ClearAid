@@ -958,7 +958,7 @@ ${(reviewInput.evidence || []).map(e => `  [${e.document} pg.${e.page || 1}]: "$
 Additional Instructions: ${input.userInstruction || "Verify contract terms and prepare draft if clean."}`;
 
   // Assemble runtime tools (including legacy actions for programmatic hard-gate adversarial testing)
-  const agentTools: Record<string, CoreTool> = {
+  const agentTools = {
     search_disbursements: searchDisbursementsTool,
     prepare_approval: prepareApprovalTool,
     audit_po_terms: auditPoTermsTool,

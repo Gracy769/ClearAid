@@ -4,8 +4,6 @@ import { checkAdminAuth, sign } from "@/lib/security";
 import { runReconciliationAgent } from "@/lib/agent/reconciliation-agent";
 import type { ReviewResult } from "@/lib/types";
 
-export const dynamic = "force-dynamic";
-
 export async function POST(req: NextRequest) {
   if (!checkAdminAuth(req)) {
     return NextResponse.json({ error: "Unauthorized admin access." }, { status: 401 });

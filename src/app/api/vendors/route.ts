@@ -2,8 +2,6 @@ import { NextRequest, NextResponse } from "next/server";
 import { getVendors, saveVendor } from "@/lib/db";
 import { checkAdminAuth } from "@/lib/security";
 
-export const dynamic = "force-dynamic";
-
 export async function GET() {
   try {
     const vendors = await getVendors();

@@ -1,4 +1,4 @@
-import { neon } from "@neondatabase/serverless";
+import { neon, type NeonQueryFunction } from "@neondatabase/serverless";
 import { createHash } from "node:crypto";
 import type { ReliefCampaign, Vendor, Disbursement, LedgerEntry, SOWRateCardItem } from "./types";
 
@@ -450,7 +450,7 @@ export async function ensureSchema() {
 // Hash Chain Public Transparency Ledger Operations
 // ---------------------------------------------------------------------------
 async function appendLedgerInternal(
-  sql: ReturnType<typeof neon>,
+  sql: NeonQueryFunction<false, false>,
   kind: string,
   refId: string,
   payload: Record<string, unknown>,

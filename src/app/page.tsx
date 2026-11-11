@@ -18,6 +18,9 @@ import {
   recordDisbursement,
 } from "@/lib/campaigns";
 
+// Add the YouTube video ID here once the walkthrough is ready (for example: "dQw4w9WgXcQ").
+const PRODUCT_VIDEO_ID = "";
+
 declare global {
   interface Window {
     PayPal?: {
@@ -41,7 +44,9 @@ type IconName =
   | "close"
   | "heart"
   | "globe"
-  | "external";
+  | "external"
+  | "download"
+  | "copy";
 
 function Icon({ name, size = 18 }: { name: IconName; size?: number }) {
   const common = {
@@ -109,6 +114,18 @@ function Icon({ name, size = 18 }: { name: IconName; size?: number }) {
         <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
         <polyline points="15 3 21 3 21 9" />
         <line x1="10" y1="14" x2="21" y2="3" />
+      </>
+    ),
+    download: (
+      <>
+        <path d="M12 3v11m0 0 4-4m-4 4-4-4" />
+        <path d="M5 17v3h14v-3" />
+      </>
+    ),
+    copy: (
+      <>
+        <rect x="8" y="8" width="12" height="13" rx="2" />
+        <path d="M16 8V5a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h2" />
       </>
     ),
   };
@@ -1341,6 +1358,19 @@ export default function Home() {
   const [paypalConfigured, setPaypalConfigured] = useState<boolean | null>(null);
   const [notice, setNotice] = useState<{ kind: "error" | "success" | "info"; text: string } | null>(null);
 
+  useEffect(() => {
+    if (!notice) return;
+    const timeoutMs = Math.min(10_000, Math.max(5_000, notice.text.length * 38));
+    const timeoutId = window.setTimeout(() => setNotice(null), timeoutMs);
+    return () => window.clearTimeout(timeoutId);
+  }, [notice]);
+
+  const switchPlatformTab = (tab: "campaigns" | "disburse" | "ledger") => {
+    setNotice(null);
+    setDonationSuccessMsg(null);
+    setActivePlatformTab(tab);
+  };
+
   // Multi-invoice batch state
   const [batchReviews, setBatchReviews] = useState<BatchReportReview[]>([]);
   const [selectedBatchIndex, setSelectedBatchIndex] = useState(0);
@@ -1353,7 +1383,8 @@ export default function Home() {
   const [ledgerHeadHash, setLedgerHeadHash] = useState<string>("GENESIS");
   const [ledgerLoading, setLedgerLoading] = useState(false);
   const [verifyStatus, setVerifyStatus] = useState<{ ok?: boolean; message?: string; total?: number } | null>(null);
-  const [adminToken, setAdminToken] = useState<string>("rr_admin_hackathon_2026_reliefready");
+  // Keep this aligned with the server's documented judge-token fallback.
+  const [adminToken, setAdminToken] = useState<string>("rr_admin_relief_judge_2026_9x8f");
   const [showAdminKey, setShowAdminKey] = useState<boolean>(false);
   const [agentTrace, setAgentTrace] = useState<{
     status?: string;
@@ -2102,7 +2133,7 @@ export default function Home() {
       <header className="topbar">
         <div className="topbar-inner">
           <a className="brand" href="#main" aria-label="ClearAid home">
-            <span className="brand-mark" aria-hidden="true">CA</span>
+            <span className="brand-mark" aria-hidden="true"><Icon name="shield" size={23} /></span>
             <div>
               <span className="brand-name">ClearAid</span>
             </div>
@@ -2140,7 +2171,7 @@ export default function Home() {
           <button
             type="button"
             className={`platform-tab${activePlatformTab === "campaigns" ? " is-active" : ""}`}
-            onClick={() => setActivePlatformTab("campaigns")}
+            onClick={() => switchPlatformTab("campaigns")}
           >
             <Icon name="heart" size={16} />
             <span>Active Relief Campaigns</span>
@@ -2150,16 +2181,16 @@ export default function Home() {
           <button
             type="button"
             className={`platform-tab${activePlatformTab === "disburse" ? " is-active" : ""}`}
-            onClick={() => setActivePlatformTab("disburse")}
+            onClick={() => switchPlatformTab("disburse")}
           >
             <Icon name="file" size={16} />
-            <span>Audit &amp; Disburse (Invoice Ready)</span>
+            <span>Invoice review &amp; payouts</span>
           </button>
 
           <button
             type="button"
             className={`platform-tab${activePlatformTab === "ledger" ? " is-active" : ""}`}
-            onClick={() => setActivePlatformTab("ledger")}
+            onClick={() => switchPlatformTab("ledger")}
           >
             <Icon name="shield" size={16} />
             <span>Public Transparency Ledger</span>
@@ -2167,6 +2198,40 @@ export default function Home() {
           </button>
         </div>
       </nav>
+
+      {activePlatformTab === "campaigns" && (
+        <section className="story-hero" aria-label="About ClearAid">
+          <div className="story-card">
+            <span className="story-label">ClearAid</span>
+            <h1>Aid procurement, with a clear paper trail.</h1>
+            <p>Before funds move, check each invoice against the approved work, vendor rates, budget, and previous payments.</p>
+            <a href="#main" className="story-link">Explore the live demo <Icon name="arrow" size={17} /></a>
+          </div>
+          <div className="story-media-card">
+            <div className="story-media-heading">
+              <strong>See how it works</strong>
+              <span>Funding → review → verified disbursement</span>
+            </div>
+            <div className="story-video-frame">
+              {PRODUCT_VIDEO_ID.trim() ? (
+                <iframe
+                  src={`https://www.youtube-nocookie.com/embed/${PRODUCT_VIDEO_ID.trim()}`}
+                  title="ClearAid product walkthrough"
+                  allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+                  referrerPolicy="strict-origin-when-cross-origin"
+                  allowFullScreen
+                />
+              ) : (
+                <div className="story-video-placeholder" aria-label="Video walkthrough placeholder">
+                  <span className="story-play-mark" aria-hidden="true"><span /></span>
+                  <strong>Your walkthrough goes here</strong>
+                  <span>Add its YouTube video ID in <code>src/app/page.tsx</code></span>
+                </div>
+              )}
+            </div>
+          </div>
+        </section>
+      )}
 
       {/* WORKFLOW RAIL (ONLY IN DISBURSEMENT TAB) */}
       {activePlatformTab === "disburse" && (
@@ -3984,7 +4049,7 @@ export default function Home() {
               </section>
 
               <footer className="workspace-footer">
-                <span className="footer-mark">CA</span>
+                <span className="footer-mark" aria-hidden="true"><Icon name="shield" size={14} /></span>
                 <span>ClearAid</span>
                 <span className="footer-divider" />
                 <span>Evidence before you bill.</span>
@@ -4032,7 +4097,7 @@ export default function Home() {
                   <li>
                     <span className="process-marker">2</span>
                     <div>
-                      <strong>Invoice Ready Preflight</strong>
+                      <strong>ClearAid preflight</strong>
                       <p>Contractor claims undergo deterministic rate audits.</p>
                     </div>
                   </li>
@@ -4055,7 +4120,7 @@ export default function Home() {
               </section>
 
               <footer className="workspace-footer">
-                <span className="footer-mark">CA</span>
+                <span className="footer-mark" aria-hidden="true"><Icon name="shield" size={14} /></span>
                 <span>ClearAid</span>
                 <span className="footer-divider" />
                 <span>Evidence-based humanitarian aid.</span>
@@ -4118,7 +4183,7 @@ export default function Home() {
               </section>
 
               <footer className="workspace-footer">
-                <span className="footer-mark">CA</span>
+                <span className="footer-mark" aria-hidden="true"><Icon name="shield" size={14} /></span>
                 <span>ClearAid</span>
                 <span className="footer-divider" />
                 <span>Evidence-based humanitarian aid.</span>
@@ -4134,7 +4199,7 @@ export default function Home() {
           <div className="cert-modal" onClick={(e) => e.stopPropagation()}>
             <div className="cert-header">
               <div className="cert-brand-group">
-                <span className="cert-seal" aria-hidden="true">CA</span>
+                <span className="cert-seal" aria-hidden="true"><Icon name="shield" size={24} /></span>
                 <div className="cert-title-group">
                   <h2>Verified Disbursement Certificate</h2>
                   <p>ClearAid deterministic preflight &amp; PayPal settlement</p>

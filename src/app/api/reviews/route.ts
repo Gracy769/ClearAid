@@ -185,7 +185,7 @@ export async function POST(req: NextRequest) {
             sowHash: camp.sowHash || input.sourceTerms?.sowHash,
           };
           if (!input.poCap || input.poCap === "0" || input.poCap === "0.00") {
-            input.poCap = (camp.availableMinor / 100).toFixed(2);
+            input.poCap = ((camp.availableMinor ?? 0) / 100).toFixed(2);
           }
 
           // Check if this vendor + bill number or document hash matches an existing disbursement

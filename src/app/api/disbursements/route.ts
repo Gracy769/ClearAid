@@ -10,8 +10,6 @@ import { checkAdminAuth, verify } from "@/lib/security";
 import { runPreflight } from "@/lib/preflight";
 import type { ReviewResult } from "@/lib/types";
 
-export const dynamic = "force-dynamic";
-
 export async function GET(req: NextRequest) {
   try {
     const campaignId = req.nextUrl.searchParams.get("campaignId") || undefined;
