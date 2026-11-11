@@ -18,8 +18,7 @@ import {
   recordDisbursement,
 } from "@/lib/campaigns";
 
-// Add the YouTube video ID here once the walkthrough is ready (for example: "dQw4w9WgXcQ").
-const PRODUCT_VIDEO_ID = "";
+const PRODUCT_VIDEO_ID = "4Yd9K6qYam8";
 
 declare global {
   interface Window {
