@@ -1,4 +1,4 @@
-<p align="center">
+<p align="left">
   <img src="public/clearaid-mark.svg" alt="ClearAid logo" width="72" />
 </p>
 
@@ -6,7 +6,11 @@
 
 **Evidence-backed invoice review and auditable PayPal Sandbox disbursements for humanitarian procurement.**
 
-[Live demo](https://invoice-ready.graceperez769.workers.dev) · [Source repository](https://github.com/Gracy769/invoice-ready) · Built for the PayPal AI Hackathon 2026
+[Live demo](https://invoice-ready.graceperez769.workers.dev) · Built for the PayPal AI Hackathon 2026
+
+## Live Video Walkthrough
+
+https://github.com/user-attachments/assets/66f234b5-7bfa-4c58-bb96-d5fd7b1f0448
 
 ## The problem
 
