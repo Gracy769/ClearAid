@@ -3,7 +3,7 @@ repos:
     hooks:
       - id: eslint
         name: ESLint
-        entry: npm run lint
+        entry: npm.cmd run lint
         language: system
         pass_filenames: false
         files: ^(src|tests)/.*\.(js|jsx|mjs|ts|tsx)$
