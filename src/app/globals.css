@@ -75,6 +75,22 @@ input, select { caret-color: var(--blue); }
 ::-webkit-scrollbar-thumb:hover { background: #8091ab; }
 
 .app-shell { min-height: 100vh; background: var(--canvas); }
+.clear-404 { min-height: 100svh; display: flex; flex-direction: column; background: #f8faff; }
+.clear-404-header { height: 72px; display: flex; align-items: center; padding: 0 max(32px, calc((100% - 1320px) / 2)); border-bottom: 1px solid #e5e8ed; background: #fff; }
+.clear-404-brand { display: inline-flex; align-items: center; gap: 12px; color: var(--ink); font-size: 20px; font-weight: 700; letter-spacing: -.04em; text-decoration: none; }
+.clear-404-brand img { display: block; border-radius: 12px; }
+.clear-404-content { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 48px 24px 72px; text-align: center; }
+.clear-404-icon { width: 112px; height: 112px; display: grid; place-items: center; margin-bottom: 22px; border-radius: 50%; background: #eef4ff; }
+.clear-404-icon svg { width: 54px; height: 54px; stroke: var(--blue); stroke-linecap: round; stroke-linejoin: round; stroke-width: 3.5; }
+.clear-404-icon svg path:last-child { stroke: var(--yellow); stroke-width: 4.5; }
+.clear-404-code { margin: 0; color: #172033; font-size: clamp(76px, 14vw, 112px); font-weight: 800; letter-spacing: -.075em; line-height: .95; }
+.clear-404-content h1 { margin: 20px 0 0; color: #172033; font-size: clamp(26px, 4vw, 34px); font-weight: 720; letter-spacing: -.04em; line-height: 1.2; }
+.clear-404-copy { margin: 10px 0 0; color: #66758a; font-size: 16px; }
+.clear-404-actions { display: flex; flex-direction: column; align-items: center; gap: 14px; margin-top: 28px; }
+.clear-404-home { display: inline-flex; min-height: 48px; align-items: center; justify-content: center; padding: 0 24px; border-radius: 12px; background: var(--blue); color: #fff; font-size: 15px; font-weight: 700; text-decoration: none; transition: background-color 150ms ease; }
+.clear-404-home:hover { background: var(--blue-deep); }
+.clear-404-back { border: 0; background: transparent; color: var(--blue-deep); cursor: pointer; font-size: 14px; font-weight: 650; }
+.clear-404-back:hover { text-decoration: underline; }
 .topbar { height: 76px; border-bottom: 1px solid var(--border); background: var(--surface); }
 .topbar-inner, .workflow-inner { width: min(1320px, calc(100% - 56px)); margin: 0 auto; }
 .topbar-inner { display: flex; height: 100%; align-items: center; justify-content: space-between; gap: 24px; }
