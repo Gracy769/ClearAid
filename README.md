@@ -1,12 +1,14 @@
-<h1><img src="public/clearaid-mark.svg" alt="ClearAid logo" width="40" height="40" align="middle" /> ClearAid</h1>
-
-**Evidence-backed invoice review and auditable PayPal Sandbox disbursements for humanitarian procurement.**
-
-[Live demo](https://invoice-ready.graceperez769.workers.dev) · Built for the PayPal AI Hackathon 2026
-
-## Live Video Walkthrough
+<div align="center">
+  <h1><img src="public/clearaid-mark.svg" alt="ClearAid logo" width="48" height="48" align="middle" /> ClearAid</h1>
+  <h2>Live Video Walkthrough</h2>
+</div>
 
 https://github.com/user-attachments/assets/66f234b5-7bfa-4c58-bb96-d5fd7b1f0448
+
+<div align="center">
+  <p><strong>Evidence-backed invoice review and auditable PayPal Sandbox disbursements for humanitarian procurement.</strong></p>
+  <p><a href="https://invoice-ready.graceperez769.workers.dev">Live demo</a> · Built for the PayPal AI Hackathon 2026</p>
+</div>
 
 ## The problem
 
