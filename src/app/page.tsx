@@ -2281,7 +2281,6 @@ export default function Home() {
           >
             <Icon name="shield" size={16} />
             <span>Public Transparency Ledger</span>
-            <span className="platform-tab-badge">{disbursements.length}</span>
           </button>
         </div>
       </nav>
